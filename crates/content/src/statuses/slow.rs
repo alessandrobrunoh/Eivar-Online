@@ -1,4 +1,4 @@
-//! Slow: a control debuff that reduces movement speed.
+//! Slow: a speed-reduction debuff. Not hard crowd control.
 
 use bevymmo_props_macro::status;
 
@@ -14,7 +14,6 @@ use crate::effects::StatusRegistry;
     purgeable = true,
     stacking = Refresh,
     refresh = RefreshAll,
-    control = Slow,
     modifier(
         stat = Speed,
         operation = Multiply,
@@ -30,17 +29,17 @@ pub fn register(registry: &mut StatusRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::effects::{ControlSpec, Status, StatusCategory};
+    use crate::effects::{Status, StatusCategory};
     use crate::stats::events::{ModifierOp, StatField};
 
     #[test]
-    fn slow_is_a_cleanseable_speed_reduction_debuff_with_control() {
+    fn slow_is_a_cleanseable_speed_reduction_debuff_without_hard_control() {
         let definition = Slow::definition();
 
         assert_eq!(definition.category, StatusCategory::Debuff);
         assert!(definition.cleanseable);
         assert!(definition.purgeable);
-        assert_eq!(definition.control, Some(ControlSpec::Slow));
+        assert_eq!(definition.control, None);
         assert_eq!(definition.duration_seconds, 3.0);
         assert_eq!(definition.stat_modifiers.len(), 1);
         assert_eq!(definition.stat_modifiers[0].field, StatField::Speed);

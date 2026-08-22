@@ -1532,7 +1532,8 @@ struct BaseAbilityDef {
     icon: Option<LitStr>,
     /// Opzionali: assenti = impatto immediato e nessun controllo.
     impact_delay: Option<LitFloat>,
-    stun_seconds: Option<LitFloat>,
+    control: Option<Ident>,
+    control_duration: Option<LitFloat>,
     statuses: Vec<Ident>,
     cleanse: Option<Ident>,
     /// Optional: "channeling" with tick_interval and movement_policy.
@@ -1561,7 +1562,8 @@ impl Parse for BaseAbilityDef {
         let mut impact_vfx = None;
         let mut icon = None;
         let mut impact_delay = None;
-        let mut stun_seconds = None;
+        let mut control = None;
+        let mut control_duration = None;
         let mut statuses = Vec::new();
         let mut cleanse = None;
         let mut cast_mode = None;
@@ -1594,7 +1596,8 @@ impl Parse for BaseAbilityDef {
                 "impact_vfx" => impact_vfx = Some(input.parse::<LitStr>()?),
                 "icon" => icon = Some(input.parse::<LitStr>()?),
                 "impact_delay" => impact_delay = Some(input.parse::<LitFloat>()?),
-                "stun_seconds" => stun_seconds = Some(input.parse::<LitFloat>()?),
+                "control" => control = Some(input.parse::<Ident>()?),
+                "control_duration" => control_duration = Some(input.parse::<LitFloat>()?),
                 "statuses" => {
                     let content;
                     bracketed!(content in input);
@@ -1635,7 +1638,7 @@ impl Parse for BaseAbilityDef {
                         format!(
                             "unknown key `{other}` in #[base_ability(...)] (expected id, name, tags, range, geometry, \
                              potency, cast_time, cooldown, mana_cost, animation, impact_vfx, icon, impact_delay, \
-                             stun_seconds, statuses, channeling)"
+                             control, control_duration, statuses, channeling)"
                         )
                     ))
                 }
@@ -1671,7 +1674,8 @@ impl Parse for BaseAbilityDef {
             })?,
             icon,
             impact_delay,
-            stun_seconds,
+            control,
+            control_duration,
             statuses,
             cleanse,
             cast_mode,
@@ -1787,11 +1791,24 @@ pub fn base_ability(attr: TokenStream, item: TokenStream) -> TokenStream {
         },
         None => quote! {},
     };
-    let stun_seconds_method = match &def.stun_seconds {
-        Some(seconds) => quote! {
-            fn stun_seconds(&self) -> f32 { #seconds }
+    let control_method = match (&def.control, &def.control_duration) {
+        (Some(kind), Some(seconds)) => quote! {
+            fn control(&self) -> Option<crate::abilities::AppliedControl> {
+                Some(crate::abilities::AppliedControl {
+                    kind: crate::crowd_control::CrowdControlKind::#kind,
+                    duration_seconds: #seconds,
+                })
+            }
         },
-        None => quote! {},
+        (None, None) => quote! {},
+        _ => {
+            return syn::Error::new_spanned(
+                &input.ident,
+                "#[base_ability] control requires both `control = Kind` and `control_duration = ...`",
+            )
+            .to_compile_error()
+            .into();
+        }
     };
 
     // Cast mode override: if channeling is specified, generate cast_mode().
@@ -1863,7 +1880,7 @@ pub fn base_ability(attr: TokenStream, item: TokenStream) -> TokenStream {
                 #icon
             }
             #impact_delay_method
-            #stun_seconds_method
+            #control_method
             #cleanse_method
             fn additional_effects(&self) -> Vec<crate::effects::EffectSpec> {
                 vec![#(#status_effects),*]

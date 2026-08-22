@@ -2,9 +2,9 @@
 //!
 //! Everything the Bevy server ran in `FixedUpdate` happens here, in one
 //! transaction, in this order. The order is the same one `crates/server` used
-//! via `.chain()`, and it matters: crowd control has to be able to cancel a cast
-//! before the cast advances, and deaths have to settle before the AI picks
-//! targets.
+//! via `.chain()`, and it matters: status expiry and crowd-control freeze have
+//! to cancel a cast before the cast advances, and deaths have to settle before
+//! the AI picks targets.
 
 use spacetimedb::{reducer, ReducerContext, Table, Timestamp};
 
@@ -42,7 +42,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) {
     }
 
     sim::status::step(ctx, dt);
-    sim::crowd_control::step(ctx, dt);
+    sim::crowd_control::step(ctx);
     sim::movement::step(ctx, dt);
     sim::gathering::step(ctx, dt);
     sim::crafting::step(ctx, dt);

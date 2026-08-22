@@ -73,7 +73,7 @@ mod tests {
             animation: "cast",
             impact_vfx: "fire_impact",
             impact_delay: 0.0,
-            stun_seconds: 0.0,
+            control: None,
             payload: ManifestationPayload::default(),
         };
         let params = blueprint.params;

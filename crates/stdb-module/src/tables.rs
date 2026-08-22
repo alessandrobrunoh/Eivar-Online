@@ -714,6 +714,10 @@ pub struct CrowdControl {
     /// a fill ratio: it only ever sees the countdown, so the first frame it
     /// observes would always look like a full bar.
     pub total_seconds: f32,
+    /// Owning `active_status.id`. One status instance, one CC row; the status
+    /// timer is authoritative and this remaining/total is a denormalized copy.
+    #[unique]
+    pub origin_status_instance_id: u64,
 }
 
 /// Semantic status instance. Specialized runtime tables remain optimized child
@@ -734,7 +738,7 @@ pub struct ActiveStatus {
     pub potency: f32,
     pub remaining_seconds: f32,
     pub total_seconds: f32,
-    /// Present while the status is represented by the legacy CC table.
+    /// Present when this status owns a hard-control child in `crowd_control`.
     pub control_kind: Option<CrowdControlKindRow>,
 }
 

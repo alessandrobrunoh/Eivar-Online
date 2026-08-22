@@ -24,6 +24,7 @@ use bevymmo_gameplay::abilities::{
     resolve_active_ability, weapon_cast_intent, AbilityAim, AbilityId, AbilitySlot, ArcBaseAbility,
     BaseAbilityRegistry,
 };
+use bevymmo_gameplay::crowd_control::CrowdControlState;
 use bevymmo_gameplay::items::components::Equipment;
 use bevymmo_gameplay::items::registry::ItemRegistry;
 use bevymmo_gameplay::stats::components::VitalStats;
@@ -110,6 +111,7 @@ pub fn cast_abilities_on_key(
             &NetworkEntityId,
             &mut LookDirection,
             &VitalStats,
+            Option<&CrowdControlState>,
         ),
         With<LocalPlayer>,
     >,
@@ -140,13 +142,18 @@ pub fn cast_abilities_on_key(
         return;
     }
 
-    let Ok((equipment, player_position, _local_network_id, mut look_direction, vitals)) =
+    let Ok((equipment, player_position, _local_network_id, mut look_direction, vitals, cc)) =
         controlled_players.single_mut()
     else {
         aim.clear();
         pending_release.clear();
         return;
     };
+    if cc.is_some_and(CrowdControlState::blocks_casting) {
+        aim.clear();
+        pending_release.clear();
+        return;
+    }
 
     // Only weapons with a loadout drive Primary/Secondary/Ultimate.
     let Some(weapon) = &equipment.weapon else {

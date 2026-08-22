@@ -1653,11 +1653,8 @@ pub(crate) fn status_identity_signature(
 }
 
 /// Collects one entity's crowd control into the component the UI queries.
-/// `Root`, `Silence` and `Slow` are dropped rather than approximated: the
-/// domain's `CrowdControlKind` knows only `Stun`, and inventing a mapping here
-/// would put a bar on screen that no gating rule agrees with. Nothing emits
-/// them today, so the branch is a guard against a future module change landing
-/// silently, not a live gap.
+/// Slow rows (schema leftover) are omitted: Slow is a speed modifier, not a
+/// movement/cast gate, and the module no longer materializes it.
 fn crowd_control_state_for(entity_id: u64, pending: &PendingRows) -> CrowdControlState {
     let effects = pending
         .crowd_control
@@ -2901,11 +2898,12 @@ mod tests {
             kind,
             remaining_seconds,
             total_seconds,
+            origin_status_instance_id: id,
         }
     }
 
     #[test]
-    fn crowd_control_projects_stun_and_root() {
+    fn crowd_control_projects_stun_root_and_silence() {
         let mut pending = PendingRows::default();
         pending.crowd_control.insert(
             1,
@@ -2915,10 +2913,14 @@ mod tests {
             2,
             crowd_control_row(2, 7, CrowdControlKindRow::Root, 1.0, 1.0),
         );
+        pending.crowd_control.insert(
+            3,
+            crowd_control_row(3, 7, CrowdControlKindRow::Silence, 0.5, 1.0),
+        );
 
         let state = crowd_control_state_for(7, &pending);
 
-        assert_eq!(state.effects.len(), 2);
+        assert_eq!(state.effects.len(), 3);
         assert!(state
             .effects
             .iter()
@@ -2927,6 +2929,10 @@ mod tests {
             .effects
             .iter()
             .any(|e| e.kind == CrowdControlKind::Root));
+        assert!(state
+            .effects
+            .iter()
+            .any(|e| e.kind == CrowdControlKind::Silence));
         let stun = state
             .effects
             .iter()

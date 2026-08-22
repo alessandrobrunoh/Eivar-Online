@@ -42,10 +42,10 @@ use spacetimedb::{ReducerContext, Table, Uuid};
 
 use crate::rows::{equipment_from_rows, StatsRow, EQUIP_SLOTS};
 use crate::tables::{
-    boss_state, crowd_control, damage_event, entity_stats, equipment, game_entity, party_member,
-    periodic_effect, player_stats, stat_modifier, BossPhaseRow, BossState, DamageEventRow,
-    EntityKindRow, EntityStateRow, EntityStats, GameEntity, ModifierKindRow, PeriodicEffect,
-    StatModifier,
+    active_status, boss_state, crowd_control, damage_event, entity_stats, equipment, game_entity,
+    party_member, periodic_effect, player_stats, stat_modifier, BossPhaseRow, BossState,
+    DamageEventRow, EntityKindRow, EntityStateRow, EntityStats, GameEntity, ModifierKindRow,
+    PeriodicEffect, StatModifier,
 };
 
 static NON_PLAYER_BASE_STATS: Mutex<Option<HashMap<u64, StatsRow>>> = Mutex::new(None);
@@ -684,6 +684,7 @@ pub fn apply_modifier(
 pub fn resurrect(ctx: &ReducerContext, entity: GameEntity) {
     let entity_id = entity.entity_id;
 
+    clear_statuses(ctx, entity_id);
     clear_modifiers(ctx, entity_id);
     clear_crowd_control(ctx, entity_id);
     clear_periodic_effects(ctx, entity_id);
@@ -717,10 +718,25 @@ pub fn resurrect(ctx: &ReducerContext, entity: GameEntity) {
     });
 }
 
-/// Drops every stun, root, silence and slow on an entity.
+/// Drops every semantic status on an entity, including owned CC / modifier /
+/// periodic children. Respawning out of a stun is the point: the card and the
+/// gate that killed the character should not still be running when it stands
+/// back up.
+fn clear_statuses(ctx: &ReducerContext, entity_id: u64) {
+    let statuses: Vec<_> = ctx
+        .db
+        .active_status()
+        .on_entity()
+        .filter(&entity_id)
+        .collect();
+    for status in statuses {
+        crate::sim::status::remove_status_instance(ctx, status);
+    }
+}
+
+/// Drops leftover crowd-control rows that are not owned by a status (orphans).
 ///
-/// Respawning out of a stun is the point: the crowd control that killed the
-/// character should not still be running when it stands back up.
+/// Status-owned children are already removed by [`clear_statuses`].
 fn clear_crowd_control(ctx: &ReducerContext, entity_id: u64) {
     // Collected first: deleting while the index iterator is live is not safe.
     let ids: Vec<u64> = ctx

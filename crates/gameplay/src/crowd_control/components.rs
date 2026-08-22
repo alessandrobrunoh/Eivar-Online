@@ -6,12 +6,9 @@ use bevy_ecs::reflect::ReflectComponent;
 
 use serde::{Deserialize, Serialize};
 
-/// Kinds of crowd control an entity can suffer.
+/// Kinds of hard crowd control an entity can suffer.
 ///
-/// Only [`CrowdControlKind::Stun`] is implemented today. The enum is kept
-/// open so future CC types (Root, Silence, Slow, Fear) can share the same
-/// component, replication, UI, and gating plumbing without further plumbing
-/// changes.
+/// Slow is a movement-speed modifier, not a kind: it does not belong here.
 #[cfg_attr(
     feature = "bevy",
     derive(bevy_ecs::component::Component, bevy_reflect::Reflect)
@@ -43,6 +40,16 @@ impl CrowdControlKind {
     /// Casting is gagged (stun or silence).
     pub fn blocks_casting(self) -> bool {
         matches!(self, CrowdControlKind::Stun | CrowdControlKind::Silence)
+    }
+
+    /// Tie-break when two effects have the same remaining time on the world bar.
+    /// Stun outranks Silence outranks Root.
+    pub fn world_bar_priority(self) -> u8 {
+        match self {
+            CrowdControlKind::Stun => 3,
+            CrowdControlKind::Silence => 2,
+            CrowdControlKind::Root => 1,
+        }
     }
 }
 
@@ -95,7 +102,8 @@ impl CrowdControlState {
 
     /// Returns `true` if any active effect blocks actions (movement + casting).
     ///
-    /// This is the single predicate movement and cast gating consult.
+    /// Stun is the only fully blocking kind. Prefer [`Self::blocks_movement`] or
+    /// [`Self::blocks_casting`] for the narrower gates.
     ///
     /// # Example
     /// ```rust,ignore
@@ -110,6 +118,13 @@ impl CrowdControlState {
         self.effects
             .iter()
             .any(|effect| effect.kind.blocks_movement())
+    }
+
+    /// True when stun or silence is currently gagging casts.
+    pub fn blocks_casting(&self) -> bool {
+        self.effects
+            .iter()
+            .any(|effect| effect.kind.blocks_casting())
     }
 
     /// Refreshes (or inserts) a CC effect of the given kind.
@@ -171,6 +186,20 @@ impl CrowdControlState {
                     .expect("finite CC timer")
             })
     }
+
+    /// The hard-control effect the world bar should show: longest remaining,
+    /// then Stun > Silence > Root.
+    pub fn longest(&self) -> Option<&ActiveCrowdControl> {
+        self.effects.iter().max_by(|left, right| {
+            left.remaining_seconds
+                .total_cmp(&right.remaining_seconds)
+                .then_with(|| {
+                    left.kind
+                        .world_bar_priority()
+                        .cmp(&right.kind.world_bar_priority())
+                })
+        })
+    }
 }
 
 #[cfg(test)]
@@ -230,5 +259,36 @@ mod tests {
     fn longest_blocking_returns_none_when_empty() {
         let state = CrowdControlState::default();
         assert!(state.longest_blocking().is_none());
+    }
+
+    #[test]
+    fn silence_blocks_casting_but_not_movement() {
+        let mut state = CrowdControlState::default();
+        state.apply(CrowdControlKind::Silence, 2.0);
+        assert!(state.blocks_casting());
+        assert!(!state.blocks_movement());
+        assert!(!state.has_blocking_cc());
+    }
+
+    #[test]
+    fn longest_picks_root_when_it_is_the_only_hard_control() {
+        let mut state = CrowdControlState::default();
+        state.apply(CrowdControlKind::Root, 2.0);
+        assert_eq!(
+            state.longest().expect("present").kind,
+            CrowdControlKind::Root
+        );
+        assert!(state.longest_blocking().is_none());
+    }
+
+    #[test]
+    fn longest_tie_breaks_stun_over_root() {
+        let mut state = CrowdControlState::default();
+        state.apply(CrowdControlKind::Root, 1.0);
+        state.apply(CrowdControlKind::Stun, 1.0);
+        assert_eq!(
+            state.longest().expect("present").kind,
+            CrowdControlKind::Stun
+        );
     }
 }

@@ -26,8 +26,8 @@ pub use ancient_word::{
     ArcAncientWord,
 };
 pub use base_ability::{
-    AbilityCastMode, AbilityGeometry, AbilityId, AbilityParams, AbilityTag, ArcBaseAbility,
-    BaseAbility, BaseAbilityRegistry, ChannelMovementPolicy,
+    AbilityCastMode, AbilityGeometry, AbilityId, AbilityParams, AbilityTag, AppliedControl,
+    ArcBaseAbility, BaseAbility, BaseAbilityRegistry, ChannelMovementPolicy,
 };
 pub use blueprint::{AbilityBlueprint, ManifestationKind, ManifestationPayload};
 pub use cast_intent::{

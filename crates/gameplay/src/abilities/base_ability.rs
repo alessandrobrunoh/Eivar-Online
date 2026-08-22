@@ -17,9 +17,17 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::abilities::blueprint::AbilityBlueprint;
+use crate::crowd_control::CrowdControlKind;
 use crate::effects::EffectSpec;
 use crate::registry::Registry;
 use crate::spells::context::{AoeShape, SpellCastContext, TargetingMode};
+
+/// Hard control applied on a damaging impact (stun, root, silence).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AppliedControl {
+    pub kind: CrowdControlKind,
+    pub duration_seconds: f32,
+}
 
 /// Raggio d'impatto di una palla lanciata da un gesto `Projectile`.
 pub const PROJECTILE_HIT_RADIUS: f32 = 1.0;
@@ -270,10 +278,9 @@ pub trait BaseAbility: Send + Sync + 'static {
         0.0
     }
 
-    /// Stun applicato all'impatto, in secondi. Default 0.0 = il gesto non ha
-    /// componente di controllo, solo danno.
-    fn stun_seconds(&self) -> f32 {
-        0.0
+    /// Hard control applied on a damaging impact. Default none.
+    fn control(&self) -> Option<AppliedControl> {
+        None
     }
 
     fn has_tag(&self, tag: AbilityTag) -> bool {

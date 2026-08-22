@@ -1,8 +1,8 @@
-//! Crowd control data types.
+//! Crowd control kinds and the client projection of active effects.
 //!
-//! The CC lifecycle systems (apply, tick, expiry) are server logic in
-//! `bevymmo_server`; here live the replicated state and the event used to
-//! request a CC application.
+//! Apply, tick and expiry live in the SpacetimeDB module, owned by `active_status`.
+//! This crate holds the shared kind enum (the rulebook for movement/cast gates)
+//! and `CrowdControlState`, which the client rebuilds from replicated rows.
 
 pub mod components;
 
