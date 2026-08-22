@@ -22,6 +22,7 @@ use crate::placeables::enemy;
     arena = 12.0,
     aggro = 12.0,
     leash_aggro = 12.0,
+    respawn = 10.0,
     enrage_after = 180.0,
     origin = Spawn,
     threat = Table,
@@ -87,6 +88,7 @@ mod tests {
         assert_eq!(enemy.aggro, 12.0);
         assert_eq!(enemy.leash_aggro, 12.0);
         assert_eq!(enemy.rank, EnemyRank::Boss);
+        assert_eq!(enemy.respawn_seconds, 10.0);
         assert_eq!(BossDragon.boss_config().arena_radius, 12.0);
     }
 

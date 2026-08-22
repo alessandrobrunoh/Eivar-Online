@@ -2697,6 +2697,7 @@ pub fn root_word(attr: TokenStream, item: TokenStream) -> TokenStream {
 //     stats(health = 30.0, armor = 8.0),
 //     aggro = 8.0,
 //     leash_aggro = 20.0,
+//     respawn = 10.0,
 //     abilities = [Cleave],
 // )]
 // pub struct Goblin;
@@ -3145,6 +3146,7 @@ struct EnemyDef {
     tint: Option<(LitFloat, LitFloat, LitFloat)>,
     blocks_movement: bool,
     collision: CollisionSpec,
+    respawn: LitFloat,
 }
 
 impl Parse for EnemyDef {
@@ -3172,6 +3174,7 @@ impl Parse for EnemyDef {
         let mut tint = None;
         let mut blocks_movement = false;
         let mut collision = CollisionSpec::None;
+        let mut respawn = None;
 
         while !input.is_empty() {
             let key: Ident = Ident::parse_any(input)?;
@@ -3236,6 +3239,19 @@ impl Parse for EnemyDef {
                     "tint" => tint = Some(parse_lit_triple(input)?),
                     "blocks_movement" => blocks_movement = input.parse::<LitBool>()?.value(),
                     "collision" => collision = parse_collision_dsl(input)?,
+                    "respawn" => {
+                        let value = parse_number_f32(input)?;
+                        let seconds: f32 = value
+                            .base10_parse()
+                            .map_err(|err| syn::Error::new_spanned(&value, err))?;
+                        if seconds <= 0.0 {
+                            return Err(syn::Error::new_spanned(
+                                &value,
+                                "#[enemy(...)] `respawn` must be greater than 0",
+                            ));
+                        }
+                        respawn = Some(value);
+                    }
                     other => {
                         return Err(syn::Error::new_spanned(
                             &key,
@@ -3243,7 +3259,7 @@ impl Parse for EnemyDef {
                                 "unknown key `{other}` in #[enemy(...)] (expected id, type, name, \
                                  icon, asset, stats, aggro, leash_aggro, acquire, origin, threat, \
                                  movement, abilities, arena, enrage_after, phases, scale, tint, \
-                                 blocks_movement, collision)"
+                                 blocks_movement, collision, respawn)"
                             ),
                         ));
                     }
@@ -3344,6 +3360,9 @@ impl Parse for EnemyDef {
             tint,
             blocks_movement,
             collision,
+            respawn: respawn.ok_or_else(|| {
+                input.error("#[enemy(...)] requires `respawn = ...` with a value greater than 0")
+            })?,
         })
     }
 }
@@ -3409,6 +3428,7 @@ impl EnemyDef {
             .iter()
             .map(BossPhaseMacroDef::to_tokens)
             .collect();
+        let respawn = &self.respawn;
         let register_call = match self.kind {
             EnemyKind::Normal => quote! {
                 registry.register_enemy(std::sync::Arc::new(#name))
@@ -3490,6 +3510,7 @@ impl EnemyDef {
                         arena_radius: #arena_tokens,
                         enrage_after_seconds: #enrage_tokens,
                         phases: vec![#(#phase_tokens),*],
+                        respawn_seconds: #respawn,
                     }
                 }
             }

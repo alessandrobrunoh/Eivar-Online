@@ -158,7 +158,7 @@ pub trait EnemyPlaceable: PlaceableDefinition {
 /// The server binding calls `boss_config()` to read the stats and spell
 /// rotation, then spawns the existing `Boss` entity. The boss plugin reads
 /// the `CreatureArchetype` tag to pick the right rotation.
-pub trait BossPlaceable: PlaceableDefinition {
+pub trait BossPlaceable: EnemyPlaceable {
     /// Per-boss stats, spell rotation and arena radius.
     fn boss_config(&self) -> BossConfig;
 }

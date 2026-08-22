@@ -840,6 +840,8 @@ pub enum BossPhaseRow {
 pub struct BossState {
     #[primary_key]
     pub entity_id: u64,
+    /// Placeable catalog key (`boss_dragon`), same role as [`EnemyAi::kind_id`].
+    pub kind_id: String,
     pub phase: BossPhaseRow,
     pub arena_center: Vec3Row,
     pub arena_radius: f32,

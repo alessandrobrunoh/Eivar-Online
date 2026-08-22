@@ -100,6 +100,9 @@ pub struct EnemyConfig {
     pub arena_radius: Option<f32>,
     pub enrage_after_seconds: Option<f32>,
     pub phases: Vec<BossPhaseDef>,
+    /// Seconds a corpse stays down before `tick_respawns` stands it back up.
+    /// Authored per archetype in `#[enemy(respawn = ...)]`.
+    pub respawn_seconds: f32,
 }
 
 /// Configuration returned by [`super::definition::BossPlaceable::boss_config`].

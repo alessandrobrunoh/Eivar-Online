@@ -15,6 +15,7 @@ use crate::placeables::enemy;
     stats(health = 30.0, mana = 40.0, mana_regen = 2.0, attack_power = 20.0, armor = 8.0, speed = 0.08),
     aggro = 8.0,
     leash_aggro = 20.0,
+    respawn = 10.0,
     abilities = [Cleave],
 )]
 pub struct Goblin;
@@ -47,6 +48,7 @@ mod tests {
         assert_eq!(config.stats.combat.armor, 8.0);
         assert_eq!(config.aggro, 8.0);
         assert_eq!(config.leash_aggro, 20.0);
+        assert_eq!(config.respawn_seconds, 10.0);
         assert_eq!(Goblin.id().as_str(), "mob_goblin");
         assert_eq!(Goblin::ID, "mob_goblin");
     }
