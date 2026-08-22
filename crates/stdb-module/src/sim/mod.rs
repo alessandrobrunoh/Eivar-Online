@@ -11,6 +11,7 @@ pub mod crafting;
 pub mod crowd_control;
 pub mod effects;
 pub mod gathering;
+pub mod loot;
 pub mod movement;
 pub mod spells;
 pub mod status;

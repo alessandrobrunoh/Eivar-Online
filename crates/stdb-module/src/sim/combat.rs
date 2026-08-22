@@ -1100,12 +1100,16 @@ fn kill(ctx: &ReducerContext, entity: GameEntity) {
     // the delay authored in `#[enemy(respawn = ...)]`. Without a timer the
     // world empties permanently after one sweep of the map.
     let respawn_in_seconds = respawn_delay(ctx, &entity);
+    let entity_id = entity.entity_id;
     ctx.db.game_entity().entity_id().update(GameEntity {
         state: EntityStateRow::Dead,
         move_target: None,
         respawn_in_seconds,
         ..entity
     });
+    if let Some(corpse) = ctx.db.game_entity().entity_id().find(&entity_id) {
+        crate::sim::loot::on_death(ctx, &corpse);
+    }
 }
 
 /// Whether the entity is currently a corpse.

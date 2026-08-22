@@ -8,6 +8,7 @@ pub mod effects;
 pub mod entity;
 pub mod gathering;
 pub mod items;
+pub mod loot;
 pub mod markets;
 pub mod movement;
 pub mod placeables;

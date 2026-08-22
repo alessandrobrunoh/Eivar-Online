@@ -21,6 +21,7 @@ pub use plugin::{
     NpcMarket, PartyMemberView, PartyRoster, RosterCharacter, StdbAuthoritative, StdbConnection,
     StdbEntityMap, StdbPlugin,
 };
+pub use crate::loot::{LootBagMarker, LootBagView, OpenLootBag, WorldLoot};
 
 /// The id type of a character row (`player.character_id`). Re-exported so
 /// presentation crates can name it without depending on `spacetimedb-sdk`

@@ -3125,6 +3125,117 @@ impl BossPhaseMacroDef {
     }
 }
 
+struct LootItemDef {
+    item: Path,
+    chance: LitInt,
+}
+
+impl Parse for LootItemDef {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let inner;
+        parenthesized!(inner in input);
+        let item: Path = inner.parse()?;
+        inner.parse::<Token![,]>()?;
+        let chance: LitInt = inner.parse()?;
+        let chance_val: u16 = chance.base10_parse()?;
+        if chance_val > 100 {
+            return Err(syn::Error::new_spanned(
+                &chance,
+                "loot chance must be 0..=100",
+            ));
+        }
+        if !inner.is_empty() {
+            return Err(inner.error("loot item is `(Item, chance)`"));
+        }
+        Ok(Self { item, chance })
+    }
+}
+
+struct LootDef {
+    gold_min: LitInt,
+    gold_max: LitInt,
+    items: Vec<LootItemDef>,
+}
+
+impl LootDef {
+    fn parse_from(content: ParseStream) -> syn::Result<Self> {
+        let mut gold_min = None;
+        let mut gold_max = None;
+        let mut items = Vec::new();
+        while !content.is_empty() {
+            let key: Ident = content.parse()?;
+            content.parse::<Token![=]>()?;
+            match key.to_string().as_str() {
+                "gold" => {
+                    let min: LitInt = content.parse()?;
+                    content.parse::<Token![..]>()?;
+                    let _inclusive = content.parse::<Token![=]>().ok();
+                    let max: LitInt = content.parse()?;
+                    let min_val: u64 = min.base10_parse()?;
+                    let max_val: u64 = max.base10_parse()?;
+                    if min_val > max_val {
+                        return Err(syn::Error::new_spanned(
+                            &max,
+                            "loot gold range start must be <= end",
+                        ));
+                    }
+                    gold_min = Some(min);
+                    gold_max = Some(max);
+                }
+                "items" => {
+                    let list;
+                    bracketed!(list in content);
+                    let punctuated: Punctuated<LootItemDef, Token![,]> =
+                        Punctuated::parse_terminated(&list)?;
+                    items = punctuated.into_iter().collect();
+                }
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        &key,
+                        format!("unknown loot key `{other}` (expected gold, items)"),
+                    ));
+                }
+            }
+            if content.peek(Token![,]) {
+                content.parse::<Token![,]>()?;
+            } else {
+                break;
+            }
+        }
+        let gold_min =
+            gold_min.ok_or_else(|| content.error("loot(...) requires `gold = min..max`"))?;
+        let gold_max =
+            gold_max.ok_or_else(|| content.error("loot(...) requires `gold = min..max`"))?;
+        Ok(Self {
+            gold_min,
+            gold_max,
+            items,
+        })
+    }
+
+    fn to_tokens(&self) -> TokenStream2 {
+        let min = &self.gold_min;
+        let max = &self.gold_max;
+        let drops: Vec<TokenStream2> = self
+            .items
+            .iter()
+            .map(|item| {
+                let path = &item.item;
+                let chance = &item.chance;
+                quote! {
+                    crate::loot::LootDrop::new(#path::ID, #chance)
+                }
+            })
+            .collect();
+        quote! {
+            Some(crate::loot::LootTable {
+                gold: ::std::ops::RangeInclusive::new(#min as u64, #max as u64),
+                drops: vec![#(#drops),*],
+            })
+        }
+    }
+}
+
 struct EnemyDef {
     id: LitStr,
     kind: EnemyKind,
@@ -3147,6 +3258,7 @@ struct EnemyDef {
     blocks_movement: bool,
     collision: CollisionSpec,
     respawn: LitFloat,
+    loot: Option<LootDef>,
 }
 
 impl Parse for EnemyDef {
@@ -3175,6 +3287,7 @@ impl Parse for EnemyDef {
         let mut blocks_movement = false;
         let mut collision = CollisionSpec::None;
         let mut respawn = None;
+        let mut loot = None;
 
         while !input.is_empty() {
             let key: Ident = Ident::parse_any(input)?;
@@ -3184,6 +3297,10 @@ impl Parse for EnemyDef {
                 let content;
                 parenthesized!(content in input);
                 stats = Some(EnemyStatsDef::parse_from(&content)?);
+            } else if key_str == "loot" {
+                let content;
+                parenthesized!(content in input);
+                loot = Some(LootDef::parse_from(&content)?);
             } else {
                 input.parse::<Token![=]>()?;
                 match key_str.as_str() {
@@ -3259,7 +3376,7 @@ impl Parse for EnemyDef {
                                 "unknown key `{other}` in #[enemy(...)] (expected id, type, name, \
                                  icon, asset, stats, aggro, leash_aggro, acquire, origin, threat, \
                                  movement, abilities, arena, enrage_after, phases, scale, tint, \
-                                 blocks_movement, collision, respawn)"
+                                 blocks_movement, collision, respawn, loot)"
                             ),
                         ));
                     }
@@ -3363,6 +3480,7 @@ impl Parse for EnemyDef {
             respawn: respawn.ok_or_else(|| {
                 input.error("#[enemy(...)] requires `respawn = ...` with a value greater than 0")
             })?,
+            loot,
         })
     }
 }
@@ -3429,6 +3547,10 @@ impl EnemyDef {
             .map(BossPhaseMacroDef::to_tokens)
             .collect();
         let respawn = &self.respawn;
+        let loot_tokens = match &self.loot {
+            Some(loot) => loot.to_tokens(),
+            None => quote!(None),
+        };
         let register_call = match self.kind {
             EnemyKind::Normal => quote! {
                 registry.register_enemy(std::sync::Arc::new(#name))
@@ -3511,6 +3633,7 @@ impl EnemyDef {
                         enrage_after_seconds: #enrage_tokens,
                         phases: vec![#(#phase_tokens),*],
                         respawn_seconds: #respawn,
+                        loot: #loot_tokens,
                     }
                 }
             }

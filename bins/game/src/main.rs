@@ -119,6 +119,7 @@ fn build_app(config: &AppConfig) -> App {
         app.add_plugins(bevymmo_client::player_movement::PlayerMovementPlugin);
         app.add_plugins(bevymmo_client::targeting::TargetingPlugin);
         app.add_plugins(bevymmo_client::gathering::GatheringPlugin);
+        app.add_plugins(bevymmo_client::loot::LootPlugin);
         // Load client-side model/animation asset collections before renderer
         // systems try to spawn player and enemy scenes.
         app.add_plugins(bevymmo_presentation::PresentationCorePlugin);

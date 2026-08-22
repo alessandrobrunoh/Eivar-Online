@@ -48,6 +48,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) {
     sim::crafting::step(ctx, dt);
     sim::spells::step(ctx, dt);
     sim::combat::step(ctx, dt);
+    sim::loot::step(ctx);
     sim::ai::step(ctx, dt);
 
     crate::reducers::lifecycle::expire_stale_presence(ctx);

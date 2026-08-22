@@ -4,6 +4,8 @@
 //! to camp.
 
 use crate::ability_definitions::cleave::Cleave;
+use crate::item_definitions::materials::copper::Copper;
+use crate::item_definitions::materials::wood::Wood;
 use crate::placeables::enemy;
 
 #[enemy(
@@ -17,6 +19,13 @@ use crate::placeables::enemy;
     leash_aggro = 20.0,
     respawn = 10.0,
     abilities = [Cleave],
+    loot(
+        gold = 1..5,
+        items = [
+            (Wood, 40),
+            (Copper, 15),
+        ],
+    ),
 )]
 pub struct Goblin;
 
@@ -63,5 +72,20 @@ mod tests {
             config.abilities[0].use_when,
             crate::placeables::AbilityUse::default()
         );
+    }
+
+    #[test]
+    fn goblin_drops_gold_and_materials() {
+        let loot = Goblin
+            .enemy_config()
+            .loot
+            .expect("goblin has a loot table");
+        assert_eq!(*loot.gold.start(), 1);
+        assert_eq!(*loot.gold.end(), 5);
+        assert_eq!(loot.drops.len(), 2);
+        assert_eq!(loot.drops[0].item_id.as_str(), "wood");
+        assert_eq!(loot.drops[0].chance_percent, 40);
+        assert_eq!(loot.drops[1].item_id.as_str(), "copper");
+        assert_eq!(loot.drops[1].chance_percent, 15);
     }
 }

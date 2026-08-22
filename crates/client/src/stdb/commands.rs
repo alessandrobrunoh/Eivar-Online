@@ -59,6 +59,9 @@ use super::module_bindings::start_craft_reducer::start_craft as start_craft_redu
 use super::module_bindings::start_gather_reducer::start_gather as start_gather_reducer;
 use super::module_bindings::stop_craft_reducer::stop_craft as stop_craft_reducer;
 use super::module_bindings::stop_gather_reducer::stop_gather as stop_gather_reducer;
+use super::module_bindings::loot_take_all_reducer::loot_take_all as loot_take_all_reducer;
+use super::module_bindings::loot_take_gold_reducer::loot_take_gold as loot_take_gold_reducer;
+use super::module_bindings::loot_take_reducer::loot_take as loot_take_reducer;
 use super::module_bindings::unequip_item_reducer::unequip_item as unequip_item_reducer;
 use super::module_bindings::Vec3Row;
 use super::plugin::StdbConnection;
@@ -244,6 +247,27 @@ pub fn set_ability_selection(conn: &StdbConnection, slot: AbilitySlot, ability_i
         ability_id,
         conn.report_rejection("could not choose that ability"),
     )
+}
+
+/// Takes one slot from a loot bag.
+pub fn loot_take(conn: &StdbConnection, bag_id: u64, slot_index: u8) -> Sent {
+    conn.reducers().loot_take_then(
+        bag_id,
+        slot_index,
+        conn.report_rejection("could not take that item"),
+    )
+}
+
+/// Takes the gold sitting in a loot bag.
+pub fn loot_take_gold(conn: &StdbConnection, bag_id: u64) -> Sent {
+    conn.reducers()
+        .loot_take_gold_then(bag_id, conn.report_rejection("could not take that gold"))
+}
+
+/// Takes gold, then as many items as fit.
+pub fn loot_take_all(conn: &StdbConnection, bag_id: u64) -> Sent {
+    conn.reducers()
+        .loot_take_all_then(bag_id, conn.report_rejection("could not loot that bag"))
 }
 
 /// Starts gathering the targeted resource node.
