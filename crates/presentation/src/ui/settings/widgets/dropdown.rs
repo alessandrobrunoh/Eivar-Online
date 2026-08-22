@@ -339,12 +339,15 @@ pub fn sync_dropdown_bar_visuals(
         (&ChildOf, &Interaction, &UiButtonImages, &mut ImageNode),
         With<DropdownHeader>,
     >,
-    mut options: Query<(
-        &DropdownOption,
-        &Interaction,
-        &UiButtonImages,
-        &mut ImageNode,
-    )>,
+    mut options: Query<
+        (
+            &DropdownOption,
+            &Interaction,
+            &UiButtonImages,
+            &mut ImageNode,
+        ),
+        Without<DropdownHeader>,
+    >,
 ) {
     for (parent, interaction, images, mut image) in &mut headers {
         let open = dropdowns
