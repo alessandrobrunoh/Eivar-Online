@@ -83,6 +83,7 @@ pub fn step(ctx: &ReducerContext, dt: f32) {
         recalculate_effective_stats(ctx, entity_id);
     }
     tick_periodic_effects(ctx, dt);
+    tick_shields(ctx, dt);
     regenerate_mana(ctx, dt);
     reap_the_dead(ctx);
     tick_respawns(ctx, dt);
@@ -276,6 +277,34 @@ fn tick_modifiers(ctx: &ReducerContext, dt: f32) -> Vec<u64> {
     touched
 }
 
+/// Advances temporary shield lifetimes and clears expired shield pools.
+fn tick_shields(ctx: &ReducerContext, dt: f32) {
+    let mut updates = Vec::new();
+    for row in ctx.db.entity_stats().iter() {
+        let Some(remaining) = row.shield_remaining_seconds else {
+            continue;
+        };
+        match bevymmo_domain::stats::formulas::shield_remaining_after_tick(remaining, dt) {
+            Some(remaining) => updates.push(EntityStats {
+                shield_remaining_seconds: Some(remaining),
+                ..row
+            }),
+            None => updates.push(EntityStats {
+                stats: StatsRow {
+                    current_shield: 0.0,
+                    max_shield: 0.0,
+                    ..row.stats
+                },
+                shield_remaining_seconds: None,
+                ..row
+            }),
+        }
+    }
+    for row in updates {
+        ctx.db.entity_stats().entity_id().update(row);
+    }
+}
+
 /// Refills mana over time.
 ///
 /// New behaviour: the Bevy server had a `max_mana`/`mana_regeneration` pair in
@@ -451,6 +480,29 @@ pub fn apply_damage(
     if killed {
         crate::sim::event_log::record_death(ctx, target, source, is_player);
     }
+}
+
+/// Grants a temporary pure shield to a live entity.
+pub fn apply_shield(ctx: &ReducerContext, target: u64, amount: f32, duration_seconds: f32) {
+    if amount <= 0.0 || duration_seconds <= 0.0 {
+        return;
+    }
+    let Some(row) = ctx.db.entity_stats().entity_id().find(&target) else {
+        return;
+    };
+    if is_dead(ctx, target) {
+        return;
+    }
+
+    ctx.db.entity_stats().entity_id().update(EntityStats {
+        stats: StatsRow {
+            current_shield: amount,
+            max_shield: amount,
+            ..row.stats
+        },
+        shield_remaining_seconds: Some(duration_seconds),
+        ..row
+    });
 }
 
 /// Whether a hostile payload from `source` must be dropped for `target`.
@@ -711,11 +763,14 @@ pub fn resurrect(ctx: &ReducerContext, entity: GameEntity) {
     if let Some(stats) = ctx.db.entity_stats().entity_id().find(&entity_id) {
         let refilled = StatsRow {
             current_health: stats.stats.max_health,
+            current_shield: 0.0,
+            max_shield: 0.0,
             ..stats.stats
         };
         ctx.db.entity_stats().entity_id().update(EntityStats {
             stats: refilled,
             current_mana: refilled.max_mana,
+            shield_remaining_seconds: None,
             ..stats
         });
     }

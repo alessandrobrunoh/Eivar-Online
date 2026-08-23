@@ -42,6 +42,12 @@ pub fn damage_after_shield(
     }
 }
 
+/// Advances a temporary shield timer, removing it at or before zero.
+pub fn shield_remaining_after_tick(remaining_seconds: f32, dt: f32) -> Option<f32> {
+    let remaining = remaining_seconds - dt.max(0.0);
+    (remaining > 0.0).then_some(remaining)
+}
+
 /// Whether `current` mana can pay `cost`.
 ///
 /// A non-positive cost is always affordable (free casts, empty blueprints).
@@ -153,6 +159,19 @@ mod tests {
             damage_after_shield(10.0, -5.0, &target).remaining_shield,
             0.0
         );
+    }
+
+    #[test]
+    fn shield_expires_at_the_duration_boundary() {
+        let remaining = shield_remaining_after_tick(5.0, 4.9).expect("shield is still active");
+        assert!((remaining - 0.1).abs() < f32::EPSILON);
+        assert_eq!(shield_remaining_after_tick(5.0, 5.0), None);
+        assert_eq!(shield_remaining_after_tick(5.0, 6.0), None);
+    }
+
+    #[test]
+    fn shield_timer_ignores_negative_elapsed_time() {
+        assert_eq!(shield_remaining_after_tick(5.0, -1.0), Some(5.0));
     }
 
     #[test]

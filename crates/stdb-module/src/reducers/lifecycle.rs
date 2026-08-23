@@ -314,6 +314,7 @@ pub fn join(ctx: &ReducerContext, display_name: String) -> Result<(), String> {
         entity_id: character.entity_id,
         stats,
         current_mana: stats.max_mana,
+        shield_remaining_seconds: None,
     });
 
     ctx.db.hotbar().insert(Hotbar {

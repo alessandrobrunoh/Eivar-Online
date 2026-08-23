@@ -560,6 +560,8 @@ pub struct EntityStats {
     pub entity_id: u64,
     pub stats: StatsRow,
     pub current_mana: f32,
+    /// Remaining lifetime of the current temporary shield.
+    pub shield_remaining_seconds: Option<f32>,
 }
 
 #[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]

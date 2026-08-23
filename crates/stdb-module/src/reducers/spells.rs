@@ -394,6 +394,11 @@ pub fn armor_cast(
         target_entity,
         target_position.map(Vec3::from),
     )?;
+    if ability_id.as_str() == "aegis"
+        && target_entity.is_some_and(|target| target != caster.entity_id)
+    {
+        return Err("Aegis can only target its caster".to_string());
+    }
     spells::spend_mana(ctx, caster.entity_id, preview.params.mana_cost)?;
     let cast_mode = preview.ability.cast_mode();
     let source = match target_slot {
@@ -489,6 +494,17 @@ fn cast_armor_instant(
     language: &bevymmo_domain::abilities::KnownAncientLanguage,
     item: &dyn bevymmo_domain::items::definition::Item,
 ) -> Result<(), String> {
+    if ability_id.as_str() == "aegis" {
+        crate::sim::combat::apply_shield(ctx, caster.entity_id, 1000.0, 5.0);
+        spells::start_cooldown(
+            ctx,
+            caster.entity_id,
+            ability_id.as_str(),
+            preview.ability.base_params().cooldown,
+        );
+        return Ok(());
+    }
+
     let combat = spells::combat_stats(ctx, caster.entity_id)
         .ok_or_else(|| "caster has no stats".to_string())?;
     let caster_position = Vec3::from(caster.position);

@@ -631,6 +631,7 @@ fn spawn_creature(
         entity_id: entity.entity_id,
         stats,
         current_mana: stats.max_mana,
+        shield_remaining_seconds: None,
     });
     crate::sim::combat::record_base_stats(entity.entity_id, stats);
     entity
