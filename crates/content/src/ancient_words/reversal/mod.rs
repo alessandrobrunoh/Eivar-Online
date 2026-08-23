@@ -70,7 +70,7 @@ mod tests {
             animation: "repel",
             impact_vfx: "push_wave",
             impact_delay: 0.15,
-            stun_seconds: 0.0,
+            control: None,
             payload: crate::abilities::ManifestationPayload::default(),
         };
 

@@ -1,8 +1,10 @@
 //! Ground markers for replicated `aoe_region` rows.
 
 use bevy::prelude::*;
+use bevymmo_client::user_settings::{GameSettingsResource, SettingToggle};
 use bevymmo_gameplay::abilities::{AbilityGeometry, AbilityId, BaseAbilityRegistry};
-use bevymmo_network::world_components::{AoeZone, Position};
+use bevymmo_gameplay::entity::components::EntityKind;
+use bevymmo_network::world_components::{AoeZone, NetworkEntityId, Position};
 
 use crate::spells::ability_vfx::{ground_sector_mesh, ground_yaw_towards, vfx_glow};
 use crate::spells::effects::SpellVisual;
@@ -48,7 +50,38 @@ pub fn spawn_aoe_meshes(
             })),
             transform,
             SpellVisual,
+            Visibility::Inherited,
         ));
+    }
+}
+
+/// True when a hostile caster's ground marker should not be drawn.
+pub(crate) fn enemy_preview_hidden(
+    show_enemy_previews: bool,
+    caster_kind: Option<EntityKind>,
+) -> bool {
+    !show_enemy_previews && matches!(caster_kind, Some(EntityKind::Hostile))
+}
+
+/// Hides or shows ground markers from the gameplay toggle.
+///
+/// Meshes always spawn so turning the setting back on reveals zones that
+/// already exist; this system only drives [`Visibility`].
+pub fn apply_aoe_preview_visibility(
+    settings: Res<GameSettingsResource>,
+    casters: Query<(&NetworkEntityId, &EntityKind)>,
+    mut zones: Query<(&AoeZone, &mut Visibility)>,
+) {
+    let show_enemy = settings.0.toggle(SettingToggle::ShowEnemyAbilityPreviews);
+    for (zone, mut visibility) in &mut zones {
+        let kind = casters
+            .iter()
+            .find_map(|(id, kind)| (id.0 == zone.caster).then_some(*kind));
+        *visibility = if enemy_preview_hidden(show_enemy, kind) {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
     }
 }
 
@@ -89,9 +122,70 @@ mod tests {
             spell_id: "cleave".into(),
             cone_angle_deg: None,
             direction: Vec3::Z,
+            caster: 0,
         };
         let (angle, dir) = cone_draw(&zone, &abilities).expect("cone");
         assert!((angle - 85.0).abs() < f32::EPSILON);
         assert_eq!(dir, Vec3::Z);
+    }
+
+    #[test]
+    fn only_hostile_previews_hide_when_the_toggle_is_off() {
+        assert!(enemy_preview_hidden(false, Some(EntityKind::Hostile)));
+        assert!(!enemy_preview_hidden(true, Some(EntityKind::Hostile)));
+        assert!(!enemy_preview_hidden(false, Some(EntityKind::Player)));
+        assert!(!enemy_preview_hidden(false, Some(EntityKind::Ally)));
+        assert!(!enemy_preview_hidden(false, None));
+    }
+
+    fn zone(caster: u64) -> AoeZone {
+        AoeZone {
+            radius: 3.0,
+            remaining_seconds: 1.0,
+            pending_delay_seconds: 0.4,
+            spell_id: "meteorite".into(),
+            cone_angle_deg: None,
+            direction: Vec3::Z,
+            caster,
+        }
+    }
+
+    #[test]
+    fn visibility_system_hides_hostile_zones_and_keeps_player_zones() {
+        use bevymmo_client::user_settings::GameSettings;
+
+        let mut app = App::new();
+        let mut settings = GameSettings::default();
+        settings.set_toggle(SettingToggle::ShowEnemyAbilityPreviews, false);
+        app.insert_resource(GameSettingsResource(settings));
+        app.add_systems(Update, apply_aoe_preview_visibility);
+
+        app.world_mut()
+            .spawn((NetworkEntityId(1), EntityKind::Hostile));
+        app.world_mut()
+            .spawn((NetworkEntityId(2), EntityKind::Player));
+        let hostile = app.world_mut().spawn((zone(1), Visibility::Inherited)).id();
+        let player = app.world_mut().spawn((zone(2), Visibility::Inherited)).id();
+
+        app.update();
+
+        assert_eq!(
+            *app.world().get::<Visibility>(hostile).unwrap(),
+            Visibility::Hidden
+        );
+        assert_eq!(
+            *app.world().get::<Visibility>(player).unwrap(),
+            Visibility::Inherited
+        );
+
+        app.world_mut()
+            .resource_mut::<GameSettingsResource>()
+            .0
+            .set_toggle(SettingToggle::ShowEnemyAbilityPreviews, true);
+        app.update();
+        assert_eq!(
+            *app.world().get::<Visibility>(hostile).unwrap(),
+            Visibility::Inherited
+        );
     }
 }

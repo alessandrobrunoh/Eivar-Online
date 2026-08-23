@@ -6,13 +6,13 @@ use std::time::Duration;
 use crate::reducers::account::caller_session;
 use crate::rows::{equipment_to_rows, inventory_to_rows, HotbarRow, StatsRow, Vec3Row};
 use crate::tables::{
-    active_status, aoe_region, boss_state, cast_state, character_wallet, cooldown, craft_session,
-    crowd_control, domain_event_cleanup_schedule, domain_event_config, enemy_ai, entity_stats,
-    equipment, game_entity, gather_session, grid_cell, hotbar, inventory, known_ancient_language,
-    npc, periodic_effect, player, player_stats, projectile, resonance, session, stat_modifier,
-    threat, tick_schedule, tick_stats, CharacterWallet, ColorRow, EntityKindRow, EntityStateRow,
-    EquipmentTable, GameEntity, Hotbar, InventoryTable, KnownAncientLanguageTable, Player,
-    PlayerStats, Session, TickSchedule,
+    active_status, aoe_region, boss_state, cast_state, character_wallet, cooldown, crowd_control,
+    craft_session, enemy_ai, entity_stats, equipment, game_entity, gather_session, grid_cell,
+    hotbar, inventory, loot_bag, loot_bag_slot,
+    known_ancient_language, npc, periodic_effect, player, player_stats, projectile, resonance,
+    session, stat_modifier, threat, tick_schedule, tick_stats, CharacterWallet, ColorRow,
+    EntityKindRow, EntityStateRow, EquipmentTable, GameEntity, Hotbar, InventoryTable,
+    KnownAncientLanguageTable, Player, PlayerStats, Session, TickSchedule,
 };
 use crate::{
     normalize_name, world, DEFAULT_SPEED_PER_SECOND, MAX_CHARACTERS_PER_ACCOUNT, TICK_INTERVAL_MS,
@@ -99,6 +99,8 @@ fn clear_runtime_state(ctx: &ReducerContext) {
         .iter()
         .map(|row| row.entity_id)
         .collect();
+    let loot_bag_ids: Vec<_> = ctx.db.loot_bag().iter().map(|row| row.id).collect();
+    let loot_slot_ids: Vec<_> = ctx.db.loot_bag_slot().iter().map(|row| row.id).collect();
 
     for id in projectile_ids {
         ctx.db.projectile().id().delete(&id);
@@ -146,6 +148,12 @@ fn clear_runtime_state(ctx: &ReducerContext) {
     }
     for entity_id in craft_entity_ids {
         ctx.db.craft_session().entity_id().delete(&entity_id);
+    }
+    for id in loot_slot_ids {
+        ctx.db.loot_bag_slot().id().delete(&id);
+    }
+    for id in loot_bag_ids {
+        ctx.db.loot_bag().id().delete(&id);
     }
 }
 

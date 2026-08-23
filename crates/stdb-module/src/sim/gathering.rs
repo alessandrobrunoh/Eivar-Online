@@ -3,22 +3,24 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use bevymmo_domain::content::items::default_items;
 use bevymmo_domain::content::placeables::register_all;
 use bevymmo_domain::gathering::{
-    bonus_extra_pieces, channel_duration, in_interact_range, regen_catchup, resolve_gather,
-    GatherAttempt,
+    bonus_extra_pieces, channel_duration, gathering_tool_bonuses, in_interact_range, regen_catchup,
+    resolve_gather, GatherAttempt,
 };
 use bevymmo_domain::items::components::Inventory;
-use bevymmo_domain::items::registry::ItemId;
+use bevymmo_domain::items::registry::{ItemId, ItemRegistry};
 use bevymmo_domain::placeables::{PlaceableRegistry, ResourceConfig, ResourceNodePlaceable};
 use bevymmo_domain::spells::components::MOVEMENT_INTERRUPT_EPSILON;
 use spacetimedb::rand::RngCore;
-use spacetimedb::{ReducerContext, Table, Timestamp};
+use spacetimedb::{ReducerContext, Table, Timestamp, Uuid};
 
 use crate::reducers::items::{grant_items, item_category, load_inventory};
 use crate::reducers::parties::notify_character;
+use crate::rows::{equipment_from_rows, EQUIP_SLOTS};
 use crate::tables::{
-    cast_state, entity_stats, game_entity, gather_session, gather_yield, resource_node,
+    cast_state, entity_stats, equipment, game_entity, gather_session, gather_yield, resource_node,
     EntityStateRow, GatherSession, GatherYieldEvent, ResourceNode,
 };
 
@@ -27,6 +29,11 @@ const DEPLETED_MESSAGE: &str = "Questa risorsa è già stata completamente racco
 /// Sentinel `next_regen_at` for a full node (no pulse scheduled).
 pub fn far_future() -> Timestamp {
     Timestamp::from_micros_since_unix_epoch(i64::MAX / 2)
+}
+
+fn item_registry() -> &'static ItemRegistry {
+    static REGISTRY: OnceLock<ItemRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(default_items)
 }
 
 fn placeables() -> &'static PlaceableRegistry {
@@ -179,22 +186,48 @@ fn persist_after_harvest(
     });
 }
 
-fn gathering_speed_of(ctx: &ReducerContext, entity_id: u64) -> f32 {
-    ctx.db
+fn gathering_stats(ctx: &ReducerContext, entity_id: u64, config: &ResourceConfig) -> (f32, f32) {
+    let (base_speed, base_bonus) = ctx
+        .db
         .entity_stats()
         .entity_id()
         .find(&entity_id)
-        .map(|row| row.stats.gathering_speed)
-        .unwrap_or(0.0)
+        .map(|row| (row.stats.gathering_speed, row.stats.gathering_bonus))
+        .unwrap_or((0.0, 0.0));
+    let character_id = ctx
+        .db
+        .game_entity()
+        .entity_id()
+        .find(&entity_id)
+        .and_then(|row| row.owner_character_id);
+    let (tool_speed, tool_bonus) = matching_tool_bonuses(ctx, character_id, config);
+    (base_speed + tool_speed, base_bonus + tool_bonus)
 }
 
-fn gathering_bonus_of(ctx: &ReducerContext, entity_id: u64) -> f32 {
-    ctx.db
-        .entity_stats()
-        .entity_id()
-        .find(&entity_id)
-        .map(|row| row.stats.gathering_bonus)
-        .unwrap_or(0.0)
+fn matching_tool_bonuses(
+    ctx: &ReducerContext,
+    character_id: Option<Uuid>,
+    config: &ResourceConfig,
+) -> (f32, f32) {
+    let Some(character_id) = character_id else {
+        return (0.0, 0.0);
+    };
+    let Some(row) = ctx.db.equipment().character_id().find(&character_id) else {
+        return (0.0, 0.0);
+    };
+    let equipped_gear = equipment_from_rows(&row.slots);
+    let registry = item_registry();
+    let items: Vec<_> = EQUIP_SLOTS
+        .iter()
+        .filter_map(|slot| {
+            let instance = equipped_gear.get(*slot).as_ref()?;
+            registry.get(&instance.item_id)
+        })
+        .collect();
+    let equipped = items
+        .iter()
+        .map(|item| (item.gathering_tool(), item.effects()));
+    gathering_tool_bonuses(&config.bonus_tools, equipped)
 }
 
 pub fn required_channel_seconds(
@@ -202,11 +235,8 @@ pub fn required_channel_seconds(
     entity_id: u64,
     config: &ResourceConfig,
 ) -> f32 {
-    channel_duration(
-        config.channel_seconds,
-        config.min_channel_seconds,
-        gathering_speed_of(ctx, entity_id),
-    )
+    let (speed, _) = gathering_stats(ctx, entity_id, config);
+    channel_duration(config.channel_seconds, config.min_channel_seconds, speed)
 }
 
 /// Uniform roll in `[0, 1)` from the module RNG.
@@ -317,10 +347,8 @@ fn complete_channel(
     };
     let stacks = Inventory::stacks_category(category);
     let space = inventory.space_for(&ItemId::new(config.yield_item.as_str().to_string()), stacks);
-    let bonus_extra = bonus_extra_pieces(
-        gathering_bonus_of(ctx, session.entity_id),
-        unit_interval_roll(ctx),
-    );
+    let (_, gather_bonus) = gathering_stats(ctx, session.entity_id, config);
+    let bonus_extra = bonus_extra_pieces(gather_bonus, unit_interval_roll(ctx));
     let outcome = resolve_gather(GatherAttempt {
         yield_amount: config.yield_amount,
         bonus_extra,

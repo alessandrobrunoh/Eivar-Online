@@ -5,9 +5,19 @@
 //! stable ids and selections.
 
 use super::base_ability::{
-    AbilityCastMode, AbilityGeometry, AbilityId, AbilityParams, AbilityTag, BaseAbility,
+    AbilityCastMode, AbilityGeometry, AbilityId, AbilityParams, AbilityTag, AppliedControl,
+    BaseAbility,
 };
+use crate::crowd_control::CrowdControlKind;
 use crate::effects::{ApplyStatusEffect, DamageEffect, EffectSpec, HealEffect, StatusId};
+
+fn status_id_for_control(kind: CrowdControlKind) -> StatusId {
+    match kind {
+        CrowdControlKind::Stun => StatusId::new("stun"),
+        CrowdControlKind::Root => StatusId::new("root"),
+        CrowdControlKind::Silence => StatusId::new("silence"),
+    }
+}
 
 /// What the Root Word makes the gesture *do*. Geometry stays on the ability;
 /// this is the payload written by `RootWordEffect::apply_to_blueprint`.
@@ -70,7 +80,7 @@ pub struct AbilityBlueprint {
     pub animation: &'static str,
     pub impact_vfx: &'static str,
     pub impact_delay: f32,
-    pub stun_seconds: f32,
+    pub control: Option<AppliedControl>,
     /// Written by the Root Word. Empty/damage is the neutral pre-root state.
     pub payload: ManifestationPayload,
 }
@@ -87,7 +97,7 @@ impl AbilityBlueprint {
             animation: ability.animation(),
             impact_vfx: ability.impact_vfx(),
             impact_delay: ability.impact_delay(),
-            stun_seconds: ability.stun_seconds(),
+            control: ability.control(),
             payload: ManifestationPayload::default(),
         }
     }
@@ -97,15 +107,17 @@ impl AbilityBlueprint {
     }
 
     /// Effects the authoritative cast must emit: Root Word payload, plus the
-    /// gesture's impact stun when this is still a damaging hit.
+    /// gesture's impact control when this is still a damaging hit.
     pub fn payload_effects(&self) -> Vec<EffectSpec> {
         let mut effects = self.payload.effect_specs(self.params.potency);
-        if self.stun_seconds > 0.0 && self.payload.kind == ManifestationKind::Damage {
-            effects.push(EffectSpec::ApplyStatus(ApplyStatusEffect {
-                status_id: StatusId::new("stun"),
-                duration_override_seconds: Some(self.stun_seconds),
-                potency: 1.0,
-            }));
+        if let Some(control) = self.control {
+            if control.duration_seconds > 0.0 && self.payload.kind == ManifestationKind::Damage {
+                effects.push(EffectSpec::ApplyStatus(ApplyStatusEffect {
+                    status_id: status_id_for_control(control.kind),
+                    duration_override_seconds: Some(control.duration_seconds),
+                    potency: 1.0,
+                }));
+            }
         }
         effects
     }
@@ -165,11 +177,48 @@ mod tests {
             animation: "a",
             impact_vfx: "v",
             impact_delay: 0.0,
-            stun_seconds: 0.8,
+            control: Some(AppliedControl {
+                kind: CrowdControlKind::Stun,
+                duration_seconds: 0.8,
+            }),
             payload: ManifestationPayload::heal([]),
         };
         let specs = blueprint.payload_effects();
         assert_eq!(specs.len(), 1);
         assert!(matches!(specs[0], EffectSpec::Heal(_)));
+    }
+
+    #[test]
+    fn damaging_hit_emits_root_when_control_is_root() {
+        let blueprint = AbilityBlueprint {
+            ability_id: AbilityId::new("test"),
+            tags: vec![],
+            geometry: AbilityGeometry::Circle { radius: 4.0 },
+            cast_mode: AbilityCastMode::Instant,
+            echo: false,
+            params: AbilityParams {
+                potency: 50.0,
+                area: 4.0,
+                range: 0.0,
+                cast_time: 0.0,
+                cooldown: 1.0,
+                mana_cost: 0.0,
+            },
+            animation: "a",
+            impact_vfx: "v",
+            impact_delay: 0.0,
+            control: Some(AppliedControl {
+                kind: CrowdControlKind::Root,
+                duration_seconds: 1.5,
+            }),
+            payload: ManifestationPayload::damage([]),
+        };
+        let specs = blueprint.payload_effects();
+        assert!(matches!(
+            &specs[1],
+            EffectSpec::ApplyStatus(effect)
+                if effect.status_id.as_str() == "root"
+                    && effect.duration_override_seconds == Some(1.5)
+        ));
     }
 }

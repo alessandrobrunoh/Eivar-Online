@@ -50,6 +50,9 @@ pub struct CatalogItem {
     /// Bevy asset path under `assets/` for the inventory icon.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// `GatheringToolKind` variant name (`Axe`, `Hammer`), omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gathering_tool: Option<String>,
     /// Present only on craftable items.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crafting: Option<CatalogCraftRecipe>,
@@ -152,6 +155,7 @@ fn catalog_item(item: &dyn Item) -> CatalogItem {
                 .collect(),
         }),
         icon: item.icon().map(str::to_string),
+        gathering_tool: item.gathering_tool().map(|kind| format!("{kind:?}")),
         crafting: item.craft_recipe().map(|recipe| CatalogCraftRecipe {
             channel_seconds: recipe.channel_seconds,
             ingredients: recipe
@@ -249,6 +253,52 @@ mod tests {
                 CatalogCraftIngredient {
                     id: "copper".into(),
                     amount: 4,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn simple_axe_is_a_craftable_gathering_tool() {
+        let axe = snapshot()
+            .item("simple_axe")
+            .cloned()
+            .expect("simple_axe is registered");
+        assert_eq!(axe.name, "Ascia");
+        assert_eq!(axe.category, "Tool");
+        assert_eq!(axe.rarity, "Common");
+        assert_eq!(axe.slot.as_deref(), Some("Weapon"));
+        assert_eq!(axe.gathering_tool.as_deref(), Some("Axe"));
+        assert!(axe.tradable);
+        assert!(axe.abilities.is_none());
+        assert!(axe.rune_profile.is_none());
+        assert_eq!(
+            axe.effects,
+            vec![
+                CatalogEffect::StatBonus {
+                    field: "GatheringSpeed".into(),
+                    op: "Add".into(),
+                    value: 50.0,
+                },
+                CatalogEffect::StatBonus {
+                    field: "GatheringBonus".into(),
+                    op: "Add".into(),
+                    value: 0.25,
+                },
+            ]
+        );
+        let crafting = axe.crafting.expect("axe is craftable");
+        assert!((crafting.channel_seconds - 3.0).abs() < f32::EPSILON);
+        assert_eq!(
+            crafting.ingredients,
+            vec![
+                CatalogCraftIngredient {
+                    id: "wood".into(),
+                    amount: 4,
+                },
+                CatalogCraftIngredient {
+                    id: "copper".into(),
+                    amount: 3,
                 },
             ]
         );

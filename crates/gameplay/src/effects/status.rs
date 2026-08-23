@@ -66,13 +66,9 @@ pub enum DispelPolicy {
     RemoveStacks,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ControlSpec {
-    Stun,
-    Root,
-    Silence,
-    Slow,
-}
+/// Hard-control payload on a status definition. Slow is a stat modifier, not a
+/// control kind, so this is [`crate::crowd_control::CrowdControlKind`].
+pub type ControlSpec = crate::crowd_control::CrowdControlKind;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StatModifierSpec {

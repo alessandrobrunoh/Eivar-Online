@@ -9,7 +9,9 @@ use bevy::window::Monitor;
 use crate::ui::theme::UiTheme;
 
 use super::SettingsPanel;
-use crate::ui::settings::state::{GameSettingsResource, Resolution, WindowMode};
+use crate::ui::settings::state::{
+    GameSettingsResource, Resolution, SettingChoice, SettingToggle, WindowMode,
+};
 use crate::ui::settings::widgets::dropdown::{spawn_select, DropdownItem};
 use crate::ui::settings::widgets::toggle::spawn_checkbox;
 
@@ -26,7 +28,7 @@ pub fn spawn_graphics_panel(
     let panel = commands
         .spawn((
             Node {
-                width: Val::Px(520.0),
+                width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(12.0),
                 padding: UiRect::all(Val::Px(24.0)),
@@ -57,7 +59,7 @@ pub fn spawn_graphics_panel(
     let _ = spawn_select(
         commands,
         panel,
-        "window_mode",
+        SettingChoice::WindowMode,
         "Window Mode",
         mode_items,
         match settings.0.graphics.mode {
@@ -76,7 +78,7 @@ pub fn spawn_graphics_panel(
     let _ = spawn_select(
         commands,
         panel,
-        "resolution",
+        SettingChoice::Resolution,
         "Resolution",
         res_items,
         &current_res_label,
@@ -87,9 +89,9 @@ pub fn spawn_graphics_panel(
     let _ = spawn_checkbox(
         commands,
         panel,
-        "vsync",
+        SettingToggle::Vsync,
         "V-Sync",
-        settings.0.graphics.vsync,
+        settings.0.toggle(SettingToggle::Vsync),
         theme,
     );
 

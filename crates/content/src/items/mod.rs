@@ -4,6 +4,7 @@ pub mod armor;
 pub mod materials;
 
 pub mod purity_charm;
+pub mod tools;
 pub mod weapons;
 
 use crate::items::registry::ItemRegistry;
@@ -28,6 +29,7 @@ pub fn default_items() -> ItemRegistry {
     armor::register(&mut registry);
     purity_charm::register(&mut registry);
     materials::register(&mut registry);
+    tools::register(&mut registry);
     weapons::sword::sword::register(&mut registry);
 
     registry
@@ -63,7 +65,9 @@ mod tests {
         assert!(registry.contains(&ItemId::new(armor::simple::SimpleBoots::ID)));
         assert!(registry.contains(&ItemId::new(materials::wood::Wood::ID)));
         assert!(registry.contains(&ItemId::new(materials::copper::Copper::ID)));
-        assert_eq!(registry.len(), 12); // 1 weapon + 3 fancy armor + 5 simple + charm + wood + copper
+        assert!(registry.contains(&ItemId::new(tools::axe::simple::SimpleAxe::ID)));
+        assert!(registry.contains(&ItemId::new(tools::hammer::simple::SimpleHammer::ID)));
+        assert_eq!(registry.len(), 14); // 1 weapon + 3 fancy armor + 5 simple + charm + wood + copper + 2 tools
     }
 
     #[test]
@@ -151,6 +155,21 @@ mod tests {
         assert_eq!(weapons.len(), 1);
         assert_eq!(weapons[0].0.as_str(), weapons::sword::sword::Sword::ID);
         assert!(registry.craftable_in(ItemCategory::Armor).is_empty());
+    }
+
+    #[test]
+    fn axe_and_hammer_are_the_craftable_tools() {
+        use crate::items::definition::ItemCategory;
+        let registry = default_items();
+        let tools = registry.craftable_in(ItemCategory::Tool);
+        let ids: Vec<&str> = tools.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["simple_axe", "simple_hammer"]);
+    }
+
+    #[test]
+    fn greeter_does_not_hand_out_gathering_tools() {
+        assert!(!greeter_stock().contains(&tools::axe::simple::SimpleAxe::ID));
+        assert!(!greeter_stock().contains(&tools::hammer::simple::SimpleHammer::ID));
     }
 
     #[test]

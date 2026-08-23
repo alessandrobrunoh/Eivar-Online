@@ -153,6 +153,25 @@ pub(crate) fn boss_config_for(kind_id: &str) -> Option<bevymmo_domain::placeable
         .map(|definition| definition.boss_config())
 }
 
+/// Authored corpse timer for an enemy or boss catalog kind.
+///
+/// Looks in both submaps because `#[enemy(type = Boss)]` registers only under
+/// bosses, while still implementing [`bevymmo_domain::placeables::EnemyPlaceable`].
+pub(crate) fn respawn_seconds_for(kind_id: &str) -> Option<f32> {
+    let id = bevymmo_domain::placeables::KindId::new(kind_id.to_string());
+    let registry = placeables();
+    registry
+        .enemies
+        .get(&id)
+        .map(|definition| definition.enemy_config().respawn_seconds)
+        .or_else(|| {
+            registry
+                .bosses
+                .get(&id)
+                .map(|definition| definition.enemy_config().respawn_seconds)
+        })
+}
+
 /// Reverses `build.rs`'s encoding.
 fn decode(bytes: &[u8]) -> Result<MapManifest, String> {
     let (mut manifest, heightfields): EncodedMap =
@@ -290,8 +309,13 @@ pub fn seed(ctx: &ReducerContext) {
                 definition.display_name(),
                 StatsRow::from(&config.stats),
             );
+            ctx.db.enemy_ai().insert(EnemyAi {
+                entity_id: entity.entity_id,
+                kind_id: prop.kind.as_str().to_string(),
+            });
             ctx.db.boss_state().insert(BossState {
                 entity_id: entity.entity_id,
+                kind_id: prop.kind.as_str().to_string(),
                 // `BossPhase::Dormant` in the domain: the encounter has not
                 // started, and the AI ignores the boss until a player crosses
                 // the arena ring.

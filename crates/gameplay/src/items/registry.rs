@@ -91,9 +91,16 @@ impl ItemRegistry {
     /// An item is craftable only when it declares a recipe *and* its
     /// catalogue category matches. Unique items (no recipe) are omitted.
     pub fn craftable_in(&self, category: ItemCategory) -> Vec<(ItemId, Arc<dyn Item>)> {
+        self.craftable_in_any(&[category])
+    }
+
+    /// Craftable items whose category is in `categories`, sorted by display name.
+    pub fn craftable_in_any(&self, categories: &[ItemCategory]) -> Vec<(ItemId, Arc<dyn Item>)> {
         self.sorted_items()
             .into_iter()
-            .filter(|(_, item)| item.config().category == category && item.craft_recipe().is_some())
+            .filter(|(_, item)| {
+                categories.contains(&item.config().category) && item.craft_recipe().is_some()
+            })
             .collect()
     }
 }

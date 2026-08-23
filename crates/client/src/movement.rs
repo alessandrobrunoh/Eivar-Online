@@ -29,12 +29,14 @@ pub const ARRIVAL_DISTANCE: f32 = 0.05;
 #[derive(Resource, Default)]
 pub struct MoveTarget(pub Option<Vec3>);
 
-/// Optimistic root applied the frame a Charge is sent, before
-/// `cast_state` replicates.
+/// Optimistic plant applied the frame a CastTime / Channeling is sent,
+/// before leftover dest replicates as cleared.
 ///
 /// Without this the client keeps walking toward the last server dest for
-/// ~100 ms, then yanks back when the lock arrives. The freeze expires on
-/// its own so a rejected reducer cannot leave the character planted.
+/// ~100 ms and interrupts its own wind-up. The freeze expires on its own
+/// so a rejected reducer cannot leave the character planted. A new
+/// right-click still walks (and interrupts) because prediction only
+/// ignores stale dest while the freeze is active.
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct LocalMovementFreeze {
     until: f32,

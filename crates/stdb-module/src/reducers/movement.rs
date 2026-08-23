@@ -40,7 +40,7 @@ pub fn move_to(ctx: &ReducerContext, x: f32, y: f32, z: f32) -> Result<(), Strin
         lock,
         crowd_control::is_movement_blocked(ctx, entity.entity_id),
     ) {
-        return Err("you cannot move while casting".to_string());
+        return Err("you cannot move while crowd-controlled".to_string());
     }
     ctx.db.game_entity().entity_id().update(GameEntity {
         move_target: Some(Vec3Row {

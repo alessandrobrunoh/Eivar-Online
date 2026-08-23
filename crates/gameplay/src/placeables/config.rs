@@ -9,6 +9,7 @@
 use crate::abilities::{AbilityId, KitInscription};
 use crate::entity::enemy::aggro::{AcquirePolicy, AggroOrigin, ThreatPolicy};
 use crate::entity::enemy::kit::AbilityUse;
+use crate::loot::LootTable;
 use crate::stats::components::StatsBundleData;
 
 /// Normal trash vs a named encounter that owns an arena.
@@ -100,6 +101,11 @@ pub struct EnemyConfig {
     pub arena_radius: Option<f32>,
     pub enrage_after_seconds: Option<f32>,
     pub phases: Vec<BossPhaseDef>,
+    /// Seconds a corpse stays down before `tick_respawns` stands it back up.
+    /// Authored per archetype in `#[enemy(respawn = ...)]`.
+    pub respawn_seconds: f32,
+    /// Gold range and item chances. `None` means this archetype drops nothing.
+    pub loot: Option<LootTable>,
 }
 
 /// Configuration returned by [`super::definition::BossPlaceable::boss_config`].
@@ -132,9 +138,9 @@ pub enum InteractionKind {
     Market { market_id: String },
     /// Opens a dialogue tree. `dialogue_tree_id` references a dialogue asset.
     Dialogue { dialogue_tree_id: String },
-    /// Opens an isolated crafting bench for one item category.
+    /// Opens an isolated crafting bench for one or more item categories.
     Craft {
-        category: crate::items::ItemCategory,
+        categories: Vec<crate::items::ItemCategory>,
     },
     /// Opens a chest and rolls the given loot table.
     OpenChest { loot_table_id: String },
@@ -206,4 +212,8 @@ pub struct ResourceConfig {
     pub interact_range: f32,
     /// Optional tool required to start a gather. `None` in v1.
     pub required_item_id: Option<crate::items::ItemId>,
+    /// Gathering-tool kinds whose equipped GatheringSpeed / GatheringBonus
+    /// apply on this node. Empty = no tool bonuses. Gathering still works
+    /// without them.
+    pub bonus_tools: Vec<crate::items::GatheringToolKind>,
 }

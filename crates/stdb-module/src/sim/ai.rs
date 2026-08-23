@@ -475,7 +475,7 @@ fn step_boss(
             // and a breath fired from a stale facing points at where the target
             // used to be.
             let boss = chase(ctx, boss, phase, main);
-            if let Some(config) = world::boss_config_for("boss_dragon") {
+            if let Some(config) = world::boss_config_for(&state.kind_id) {
                 run_rotation(ctx, &boss, &config, &living, main, &mut rotation);
             }
         }
@@ -978,8 +978,9 @@ fn living_players_near(
 ///   had; this is what stops the AI handing it a fresh one every tick.
 /// - It is mid-cast. `sim::spells::advance_casts` interrupts a cast-time spell
 ///   whose caster moved, so a dragon that kept walking into melee would cancel
-///   its own searing breath on the tick after it started it. Bevy had the same
-///   two systems and the same collision; there the boss simply lost the cast.
+///   its own searing breath on the tick after it started it. Opening the cast
+///   also plants via `request_catalog_ability` (clears leftover chase); this
+///   gate is what stops the AI handing a fresh dest every later tick.
 fn gate_movement(
     ctx: &ReducerContext,
     entity_id: u64,

@@ -6,9 +6,12 @@
 
 use bevy::prelude::*;
 
-use crate::ui::button::{spawn_button, UiButtonAction};
+use crate::ui::button::{spawn_bar_button, spawn_button, UiButtonAction};
 use crate::ui::text::spawn_text;
-use crate::ui::theme::UiTheme;
+use crate::ui::theme::{
+    ornate_menu_panel_content_node, spawn_menu_screen_background, spawn_ornate_settings_panel,
+    UiTheme,
+};
 
 use crate::ui::settings::state::{GameSettingsResource, SettingsTab};
 
@@ -22,7 +25,7 @@ pub struct SettingsTabButton {
     pub tab: SettingsTab,
 }
 
-/// Marker: content area that hosts the three panels.
+/// Marker: content area that hosts the settings panels.
 #[derive(Component)]
 pub struct SettingsContentArea;
 
@@ -37,18 +40,17 @@ pub fn spawn_settings_shell(
     monitors: &Query<&bevy::window::Monitor>,
     asset_server: &AssetServer,
 ) {
-    // Outer row: [ sidebar | content ]
-    let shell = commands
+    spawn_menu_screen_background(commands, root, asset_server);
+
+    let frame = spawn_ornate_settings_panel(commands, root, asset_server);
+    let inner = commands
         .spawn(Node {
-            width: Val::Percent(80.0),
-            height: Val::Percent(80.0),
             flex_direction: FlexDirection::Row,
-            column_gap: Val::Px(0.0),
-            padding: Val::Px(0.0).into(),
-            ..default()
+            column_gap: Val::Px(16.0),
+            ..ornate_menu_panel_content_node()
         })
         .id();
-    commands.entity(root).add_child(shell);
+    commands.entity(frame).add_child(inner);
 
     // --- Sidebar -----------------------------------------------------------
     let sidebar = commands
@@ -56,53 +58,38 @@ pub fn spawn_settings_shell(
             width: Val::Px(200.0),
             height: Val::Percent(100.0),
             flex_direction: FlexDirection::Column,
-            padding: UiRect::all(Val::Px(16.0)),
             row_gap: Val::Px(8.0),
+            flex_shrink: 0.0,
             ..default()
         })
         .id();
-    commands.entity(shell).add_child(sidebar);
+    commands.entity(inner).add_child(sidebar);
 
     let _ = spawn_text(
         commands,
         sidebar,
         "Settings",
-        theme.title_font_size * 0.6,
+        theme.title_font_size * 0.55,
         theme.text_color,
     );
 
     for tab in SettingsTab::ALL {
-        let button = commands
-            .spawn((
-                Button,
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Px(40.0),
-                    justify_content: JustifyContent::FlexStart,
-                    align_items: AlignItems::Center,
-                    padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
-                    ..default()
-                },
-                BackgroundColor(theme.button_bg),
-                SettingsTabButton { tab },
-            ))
-            .id();
-        commands.entity(sidebar).add_child(button);
-
-        let label = commands
-            .spawn((
-                Text::new(tab.label().to_string()),
-                TextFont {
-                    font_size: FontSize::Px(theme.button_font_size),
-                    ..default()
-                },
-                TextColor(theme.button_text_color),
-            ))
-            .id();
-        commands.entity(button).add_child(label);
+        let button = spawn_bar_button(
+            commands,
+            sidebar,
+            tab.label(),
+            theme,
+            SettingsTabButton { tab },
+        );
+        commands
+            .entity(button)
+            .entry::<Node>()
+            .and_modify(|mut node| {
+                node.width = Val::Percent(100.0);
+                node.height = Val::Px(40.0);
+            });
     }
 
-    // Spacer pushing the Back button to the bottom of the sidebar.
     let spacer = commands
         .spawn(Node {
             flex_grow: 1.0,
@@ -111,7 +98,7 @@ pub fn spawn_settings_shell(
         .id();
     commands.entity(sidebar).add_child(spacer);
 
-    let _ = spawn_button(
+    let back = spawn_button(
         commands,
         sidebar,
         "Back",
@@ -119,33 +106,28 @@ pub fn spawn_settings_shell(
         theme,
         asset_server,
     );
+    commands
+        .entity(back)
+        .entry::<Node>()
+        .and_modify(|mut node| {
+            node.width = Val::Percent(100.0);
+        });
 
     // --- Content area ------------------------------------------------------
-    let content = commands
-        .spawn(Node {
-            flex_grow: 1.0,
-            height: Val::Percent(100.0),
-            flex_direction: FlexDirection::Column,
-            align_items: AlignItems::Center,
-            ..default()
-        })
-        .id();
-    commands.entity(shell).add_child(content);
-
     let content_area = commands
         .spawn((
             Node {
-                width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                height: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
+                align_items: AlignItems::Stretch,
                 overflow: Overflow::clip_y(),
                 ..default()
             },
             SettingsContentArea,
         ))
         .id();
-    commands.entity(content).add_child(content_area);
+    commands.entity(inner).add_child(content_area);
 
     // Non-default panels spawn hidden; `update_panel_visibility` runs on tab change.
     let _ = crate::ui::settings::panels::general::spawn_general_panel(
@@ -159,6 +141,12 @@ pub fn spawn_settings_shell(
         content_area,
         theme,
         monitors,
+        settings,
+    );
+    let _ = crate::ui::settings::panels::gameplay::spawn_gameplay_panel(
+        commands,
+        content_area,
+        theme,
         settings,
     );
     let _ = crate::ui::settings::panels::keybinds::spawn_keybinds_panel(

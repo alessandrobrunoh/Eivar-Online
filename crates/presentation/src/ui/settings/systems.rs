@@ -12,6 +12,7 @@
 //!   `Window` when they change.
 //! - **`persist_settings_when_changed`** → JSON save when the resource mutates.
 
+use bevy::ecs::query::QueryFilter;
 use bevy::input::keyboard::{KeyCode, KeyboardInput};
 use bevy::input::ButtonInput;
 use bevy::input::ButtonState;
@@ -20,15 +21,13 @@ use bevy::window::{PrimaryWindow, Window};
 
 use super::layout::{ActiveSettingsTab, SettingsTabButton};
 use super::panels::SettingsPanel;
-use super::widgets::dropdown::{Dropdown, DropdownChanged, DropdownValueText};
-use super::widgets::key_capture::{KeyBindingChanged, KeyCapture};
-use super::widgets::toggle::{Toggle, ToggleDisplay};
-use crate::ui::button::UiButtonAction;
+use super::widgets::dropdown::DropdownChanged;
+use super::widgets::key_capture::{KeyBindingChanged, KeyCapture, KeyCaptureValue};
+use super::widgets::toggle::Toggle;
+use crate::ui::button::{apply_button_image, UiButtonAction, UiButtonImages};
 use crate::ui::settings::state::{
-    save_settings, GameSettings, GameSettingsResource, KeyBinding, KeyModifiers, Resolution,
-    WindowMode,
+    save_settings, GameSettings, GameSettingsResource, KeyBinding, KeyModifiers, WindowMode,
 };
-use crate::ui::theme::UiTheme;
 
 // ===========================================================================
 // Sidebar / tab switching
@@ -36,17 +35,21 @@ use crate::ui::theme::UiTheme;
 
 /// Highlights the active sidebar tab button and dims the others.
 pub fn update_tab_button_visuals(
-    theme: Res<UiTheme>,
     active: Res<ActiveSettingsTab>,
-    mut buttons: Query<(&SettingsTabButton, &mut BackgroundColor)>,
+    mut buttons: Query<(
+        &SettingsTabButton,
+        &Interaction,
+        &UiButtonImages,
+        &mut ImageNode,
+    )>,
 ) {
-    for (button, mut bg) in buttons.iter_mut() {
-        let is_active = button.tab == active.0;
-        *bg = BackgroundColor(if is_active {
-            theme.button_hovered_bg
+    for (button, interaction, images, mut image) in buttons.iter_mut() {
+        let shown = if button.tab == active.0 {
+            Interaction::Hovered
         } else {
-            theme.button_bg
-        });
+            *interaction
+        };
+        apply_button_image(shown, &mut image, images);
     }
 }
 
@@ -81,61 +84,15 @@ pub fn update_panel_visibility(
 }
 
 // ===========================================================================
-// Dropdown
-// ===========================================================================
-
-/// Click on a dropdown cycles to the next item, updates the value text, and
-/// emits [`DropdownChanged`].
-pub fn cycle_dropdown(
-    mut dropdowns: Query<(&Interaction, &mut Dropdown, &Children), Changed<Interaction>>,
-    mut value_texts: Query<&mut Text, With<DropdownValueText>>,
-    mut changed: MessageWriter<DropdownChanged>,
-) {
-    for (interaction, mut dropdown, children) in dropdowns.iter_mut() {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        if dropdown.items.is_empty() {
-            continue;
-        }
-        dropdown.selected = (dropdown.selected + 1) % dropdown.items.len();
-        let new_label = dropdown.items[dropdown.selected].label.clone();
-        let new_value = dropdown.items[dropdown.selected].value.clone();
-        for child in children.iter() {
-            if let Ok(mut text) = value_texts.get_mut(child) {
-                text.0 = new_label.clone();
-            }
-        }
-        changed.write(DropdownChanged {
-            id: dropdown.id.clone(),
-            value: new_value,
-        });
-    }
-}
-
-// ===========================================================================
 // Toggle
 // ===========================================================================
 
-/// Click on a toggle flips its state and updates its visual.
-pub fn toggle_on_click(
-    theme: Res<UiTheme>,
-    mut query: Query<(&Interaction, &mut Toggle, &Children), Changed<Interaction>>,
-    mut displays: Query<&mut BackgroundColor, With<ToggleDisplay>>,
-) {
-    for (interaction, mut toggle, children) in query.iter_mut() {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        toggle.on = !toggle.on;
-        for child in children.iter() {
-            if let Ok(mut bg) = displays.get_mut(child) {
-                bg.0 = if toggle.on {
-                    theme.button_hovered_bg
-                } else {
-                    Color::NONE
-                };
-            }
+/// Click on a toggle flips its state. Kit checkbox art is applied by
+/// [`super::widgets::toggle::sync_toggle_visuals`].
+pub fn toggle_on_click(mut query: Query<(&Interaction, &mut Toggle), Changed<Interaction>>) {
+    for (interaction, mut toggle) in query.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            toggle.on = !toggle.on;
         }
     }
 }
@@ -148,7 +105,7 @@ pub fn toggle_on_click(
 /// to "Press a key…" / current binding.
 pub fn toggle_key_capture_on_click(
     mut query: Query<(&Interaction, &mut KeyCapture, &Children), Changed<Interaction>>,
-    mut value_texts: Query<&mut Text>,
+    mut value_texts: Query<&mut Text, With<KeyCaptureValue>>,
 ) {
     for (interaction, mut capture, children) in query.iter_mut() {
         if *interaction != Interaction::Pressed {
@@ -171,7 +128,7 @@ pub fn update_key_capture_input(
     mut events: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     mut captures: Query<(Entity, &mut KeyCapture, &Children)>,
-    mut value_texts: Query<&mut Text>,
+    mut value_texts: Query<&mut Text, With<KeyCaptureValue>>,
     mut changed: MessageWriter<KeyBindingChanged>,
 ) {
     let mut cancel_requested = false;
@@ -237,7 +194,11 @@ fn is_modifier_key(code: KeyCode) -> bool {
 /// Writes `new_text` into the first descendant (within `children`) text node
 /// found via the value-texts query. The key-capture button has a single child
 /// text node, so depth-1 search is enough.
-fn update_descendant_text(value_texts: &mut Query<&mut Text>, children: &Children, new_text: &str) {
+fn update_descendant_text<F: QueryFilter>(
+    value_texts: &mut Query<&mut Text, F>,
+    children: &Children,
+    new_text: &str,
+) {
     for child in children.iter() {
         if let Ok(mut text) = value_texts.get_mut(child) {
             text.0 = new_text.to_string();
@@ -258,37 +219,11 @@ pub fn apply_widget_events(
     toggle_changes: Query<&Toggle, Changed<Toggle>>,
 ) {
     for ev in dropdowns.read() {
-        match ev.id.as_str() {
-            "window_mode" => {
-                settings.0.graphics.mode = match ev.value.as_str() {
-                    "borderless" => WindowMode::Borderless,
-                    "exclusive" => WindowMode::Exclusive,
-                    _ => WindowMode::Windowed,
-                };
-            }
-            "resolution" => {
-                if let Some(res) = parse_resolution(&ev.value) {
-                    settings.0.graphics.resolution = res;
-                }
-            }
-            "language" => {
-                settings.0.general.language = ev.value.clone();
-            }
-            "interface_scale" => {
-                if let Ok(scale) = ev.value.parse::<f32>() {
-                    settings.0.general.interface_scale = scale.clamp(0.5, 3.0);
-                }
-            }
-            _ => {}
-        }
+        let _ = settings.0.set_choice(ev.id, &ev.value);
     }
 
     for toggle in toggle_changes.iter() {
-        match toggle.id.as_str() {
-            "vsync" => settings.0.graphics.vsync = toggle.on,
-            "show_fps" => settings.0.general.show_fps = toggle.on,
-            _ => {}
-        }
+        settings.0.set_toggle(toggle.id, toggle.on);
     }
 
     for ev in keybinds.read() {
@@ -301,7 +236,8 @@ pub fn apply_widget_events(
 pub fn reset_keybinds_on_button(
     query: Query<(&Interaction, &crate::ui::button::UiButton), Changed<Interaction>>,
     mut settings: ResMut<GameSettingsResource>,
-    mut captures: Query<&mut KeyCapture>,
+    mut captures: Query<(&mut KeyCapture, &Children)>,
+    mut value_texts: Query<&mut Text, With<KeyCaptureValue>>,
 ) {
     let mut triggered = false;
     for (interaction, button) in query.iter() {
@@ -313,15 +249,11 @@ pub fn reset_keybinds_on_button(
         return;
     }
     settings.0.keybinds.bindings.clear();
-    for mut capture in captures.iter_mut() {
+    for (mut capture, children) in captures.iter_mut() {
         capture.binding = KeyBinding::bare(capture.action.default_binding());
         capture.capturing = false;
+        update_descendant_text(&mut value_texts, children, &capture.binding.label());
     }
-}
-
-fn parse_resolution(label: &str) -> Option<Resolution> {
-    let (w_str, h_str) = label.split_once('x')?;
-    Some(Resolution::new(w_str.parse().ok()?, h_str.parse().ok()?))
 }
 
 // ===========================================================================
@@ -370,76 +302,23 @@ pub fn apply_interface_scale(settings: Res<GameSettingsResource>, mut ui_scale: 
 /// Persists [`GameSettingsResource`] to disk whenever its fingerprint changes.
 pub(crate) fn persist_settings_when_changed(
     settings: Res<GameSettingsResource>,
-    mut last_saved: Local<Option<GameSettingsFingerprint>>,
+    mut last_saved: Local<Option<GameSettings>>,
 ) {
-    // Change detection first: building the fingerprint costs a `serde_json`
-    // round trip and a `format!` per keybind plus a sort and a join, and
-    // settings change a handful of times per session. Without this guard that
-    // cost was paid every frame, forever — unlike its neighbours
-    // `apply_graphics_to_window` and `apply_interface_scale`, which already
-    // guard on `is_changed()`.
+    // Change detection first: a clone + `PartialEq` is cheap compared to a
+    // disk write, and settings change a handful of times per session.
+    // Neighbours `apply_graphics_to_window` and `apply_interface_scale`
+    // already guard on `is_changed()`.
     if !settings.is_changed() {
         return;
     }
-    let fp = GameSettingsFingerprint::from(&settings.0);
-    if last_saved.as_ref() == Some(&fp) {
+    if last_saved.as_ref() == Some(&settings.0) {
         return;
     }
     if let Err(err) = save_settings(&settings.0) {
         bevy::log::warn!("Failed to save settings: {}", err);
         return;
     }
-    *last_saved = Some(fp);
-}
-
-#[derive(Debug, PartialEq)]
-pub(crate) struct GameSettingsFingerprint {
-    mode: WindowMode,
-    resolution: Resolution,
-    vsync: bool,
-    interface_scale: f32,
-    show_fps: bool,
-    language: String,
-    keybinds_signature: String,
-}
-
-impl GameSettingsFingerprint {
-    pub(crate) fn from(s: &GameSettings) -> Self {
-        // Sort entries so the signature is stable regardless of HashMap order.
-        let mut entries: Vec<(String, String)> = s
-            .keybinds
-            .bindings
-            .iter()
-            .map(|(action, binding)| {
-                let action_str = serde_json::to_string(action).unwrap_or_default();
-                let binding_str = format!(
-                    "{:?}|{}|{}|{}|{}",
-                    binding.key,
-                    binding.modifiers.shift,
-                    binding.modifiers.ctrl,
-                    binding.modifiers.alt,
-                    binding.modifiers.super_key
-                );
-                (action_str, binding_str)
-            })
-            .collect();
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        let keybinds_signature = entries
-            .iter()
-            .map(|(a, b)| format!("{}={}", a, b))
-            .collect::<Vec<_>>()
-            .join(";");
-
-        Self {
-            mode: s.graphics.mode,
-            resolution: s.graphics.resolution,
-            vsync: s.graphics.vsync,
-            interface_scale: s.general.interface_scale,
-            show_fps: s.general.show_fps,
-            language: s.general.language.clone(),
-            keybinds_signature,
-        }
-    }
+    *last_saved = Some(settings.0.clone());
 }
 
 // ===========================================================================
@@ -449,60 +328,50 @@ impl GameSettingsFingerprint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::settings::state::KeyAction;
+    use crate::ui::settings::state::{KeyAction, SettingChoice, SettingToggle};
 
     #[test]
-    fn parse_resolution_handles_standard_labels() {
-        assert_eq!(
-            parse_resolution("1920x1080"),
-            Some(Resolution::new(1920, 1080))
-        );
-        assert_eq!(
-            parse_resolution("1280x720"),
-            Some(Resolution::new(1280, 720))
-        );
+    fn apply_widget_events_writes_typed_toggle_and_choice() {
+        let mut app = App::new();
+        app.add_message::<DropdownChanged>();
+        app.add_message::<KeyBindingChanged>();
+        app.insert_resource(GameSettingsResource(GameSettings::default()));
+        app.add_systems(Update, apply_widget_events);
+
+        app.world_mut().write_message(DropdownChanged {
+            id: SettingChoice::WindowMode,
+            value: "borderless".into(),
+        });
+        app.world_mut().spawn(Toggle {
+            id: SettingToggle::ShowEnemyAbilityPreviews,
+            on: false,
+        });
+        app.update();
+
+        let settings = &app.world().resource::<GameSettingsResource>().0;
+        assert_eq!(settings.graphics.mode, WindowMode::Borderless);
+        assert!(!settings.gameplay.show_enemy_ability_previews);
     }
 
     #[test]
-    fn parse_resolution_returns_none_for_garbage() {
-        assert_eq!(parse_resolution("hd"), None);
-        assert_eq!(parse_resolution("1920"), None);
-        assert_eq!(parse_resolution("1920x"), None);
-    }
-
-    #[test]
-    fn fingerprint_is_stable_across_keybind_map_permutations() {
+    fn persist_skips_identical_snapshots() {
         let mut s1 = GameSettings::default();
         let mut s2 = GameSettings::default();
-
         s1.keybinds
             .bindings
             .insert(KeyAction::CastPrimary, KeyBinding::bare(KeyCode::KeyQ));
         s1.keybinds
             .bindings
             .insert(KeyAction::CastSecondary, KeyBinding::bare(KeyCode::KeyW));
-
         s2.keybinds
             .bindings
             .insert(KeyAction::CastSecondary, KeyBinding::bare(KeyCode::KeyW));
         s2.keybinds
             .bindings
             .insert(KeyAction::CastPrimary, KeyBinding::bare(KeyCode::KeyQ));
+        assert_eq!(s1, s2);
 
-        assert_eq!(
-            GameSettingsFingerprint::from(&s1),
-            GameSettingsFingerprint::from(&s2)
-        );
-    }
-
-    #[test]
-    fn fingerprint_detects_changes() {
-        let s1 = GameSettings::default();
-        let mut s2 = GameSettings::default();
-        s2.graphics.vsync = !s1.graphics.vsync;
-        assert_ne!(
-            GameSettingsFingerprint::from(&s1),
-            GameSettingsFingerprint::from(&s2)
-        );
+        s2.set_toggle(SettingToggle::Vsync, false);
+        assert_ne!(s1, s2);
     }
 }

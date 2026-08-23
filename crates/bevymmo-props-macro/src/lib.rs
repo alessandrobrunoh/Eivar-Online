@@ -149,6 +149,7 @@ struct ResourceAttributes {
     regen_interval_seconds: Option<f32>,
     regen_amount: Option<u32>,
     interact_range: f32,
+    bonus_tools: Vec<String>,
 }
 
 fn parse_resource_attrs(input: &str) -> ResourceAttributes {
@@ -162,6 +163,7 @@ fn parse_resource_attrs(input: &str) -> ResourceAttributes {
         regen_interval_seconds: None,
         regen_amount: None,
         interact_range: 2.5,
+        bonus_tools: Vec::new(),
     };
 
     for pair in split_top_level_commas(input) {
@@ -192,6 +194,7 @@ fn parse_resource_attrs(input: &str) -> ResourceAttributes {
                     attrs.interact_range = range;
                 }
             }
+            "bonus_tools" => attrs.bonus_tools = parse_ident_list(value),
             _ => {}
         }
     }
@@ -251,6 +254,14 @@ fn expand_resource(input: &DeriveInput, attrs: ResourceAttributes) -> Result<Tok
     let min_channel_seconds = attrs.min_channel_seconds;
     let yield_amount = attrs.yield_amount;
     let interact_range = attrs.interact_range;
+    let bonus_tools: Vec<TokenStream2> = attrs
+        .bonus_tools
+        .iter()
+        .map(|kind| {
+            let ident = Ident::new(kind, proc_macro2::Span::call_site());
+            quote! { crate::items::GatheringToolKind::#ident }
+        })
+        .collect();
 
     Ok(quote! {
         #input
@@ -298,6 +309,7 @@ fn expand_resource(input: &DeriveInput, attrs: ResourceAttributes) -> Result<Tok
                     regen_amount: #regen_amount,
                     interact_range: #interact_range,
                     required_item_id: None,
+                    bonus_tools: vec![#(#bonus_tools),*],
                 }
             }
         }
@@ -524,6 +536,23 @@ fn clean_string(s: &str) -> String {
     s.trim_matches('"').to_string()
 }
 
+/// Parses `[Axe]` / `[Axe, Hammer]` into variant names.
+fn parse_ident_list(value: &str) -> Vec<String> {
+    let inner = value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
+    if inner.is_empty() {
+        return Vec::new();
+    }
+    inner
+        .split(',')
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
 fn parse_triple_f32(s: &str) -> Option<(f32, f32, f32)> {
     // Parse "(1.0, 2.0, 3.0)"
     let inner = s.trim_matches('(').trim_matches(')');
@@ -743,7 +772,6 @@ impl Parse for EffectDef {
     }
 }
 
-
 /// Parsed `abilities(primary = [...], secondary = [...], ultimate = [...])`
 /// clause. Ogni slot deve offrire almeno una abilità; la selezione attiva vive
 /// sull'esemplare e può includere anche l'Ultimate.
@@ -952,12 +980,10 @@ impl CraftingDef {
             }
         }
         Ok(Self {
-            channel_seconds: channel_seconds.ok_or_else(|| {
-                content.error("crafting(...) requires `channel_seconds = ...`")
-            })?,
-            ingredients: ingredients.ok_or_else(|| {
-                content.error("crafting(...) requires `ingredients = [...]`")
-            })?,
+            channel_seconds: channel_seconds
+                .ok_or_else(|| content.error("crafting(...) requires `channel_seconds = ...`"))?,
+            ingredients: ingredients
+                .ok_or_else(|| content.error("crafting(...) requires `ingredients = [...]`"))?,
         })
     }
 }
@@ -977,6 +1003,7 @@ struct ItemDef {
     abilities: Option<AbilitiesDef>,
     rune_profile: Option<RuneProfileDef>,
     crafting: Option<CraftingDef>,
+    gathering_tool: Option<Ident>,
 }
 
 impl Parse for ItemDef {
@@ -994,6 +1021,7 @@ impl Parse for ItemDef {
         let mut abilities = None;
         let mut rune_profile = None;
         let mut crafting = None;
+        let mut gathering_tool = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -1021,6 +1049,7 @@ impl Parse for ItemDef {
                     "rarity" => rarity = Some(input.parse::<Ident>()?),
                     "slot" => slot = Some(input.parse::<Ident>()?),
                     "family" => family = Some(input.parse::<Ident>()?),
+                    "gathering_tool" => gathering_tool = Some(input.parse::<Ident>()?),
                     "tradable" => tradable = input.parse::<LitBool>()?.value(),
                     "icon" => icon = Some(input.parse::<LitStr>()?),
                     "effects" => {
@@ -1034,7 +1063,7 @@ impl Parse for ItemDef {
                             &key,
                             format!(
                                 "unknown key `{other}` in #[item(...)] (expected id, name, description, \
-                                 category, rarity, slot, family, tradable, icon, effects, \
+                                 category, rarity, slot, family, gathering_tool, tradable, icon, effects, \
                                  abilities, rune_profile, crafting)"
                             ),
                         ))
@@ -1061,7 +1090,7 @@ impl Parse for ItemDef {
             description,
             category: category.ok_or_else(|| {
                 input.error(
-                    "#[item(...)] requires `category = ...` (Weapon | Armor | Consumable | Material | Quest | Accessory)",
+                    "#[item(...)] requires `category = ...` (Weapon | Armor | Consumable | Material | Quest | Accessory | Tool)",
                 )
             })?,
             rarity: rarity.ok_or_else(|| {
@@ -1075,6 +1104,7 @@ impl Parse for ItemDef {
             abilities,
             rune_profile,
             crafting,
+            gathering_tool,
         })
     }
 }
@@ -1101,6 +1131,13 @@ impl ItemDef {
             quote! {
                 fn weapon_family(&self) -> Option<crate::items::WeaponFamilyId> {
                     Some(crate::items::WeaponFamilyId::new(#family_id))
+                }
+            }
+        });
+        let gathering_tool_method = self.gathering_tool.as_ref().map(|kind| {
+            quote! {
+                fn gathering_tool(&self) -> Option<crate::items::GatheringToolKind> {
+                    Some(crate::items::GatheringToolKind::#kind)
                 }
             }
         });
@@ -1211,6 +1248,7 @@ impl ItemDef {
                 }
 
                 #family_method
+                #gathering_tool_method
                 #ability_loadout_method
                 #rune_profile_method
                 #craft_recipe_method
@@ -1494,7 +1532,8 @@ struct BaseAbilityDef {
     icon: Option<LitStr>,
     /// Opzionali: assenti = impatto immediato e nessun controllo.
     impact_delay: Option<LitFloat>,
-    stun_seconds: Option<LitFloat>,
+    control: Option<Ident>,
+    control_duration: Option<LitFloat>,
     statuses: Vec<Ident>,
     cleanse: Option<Ident>,
     /// Optional: "channeling" with tick_interval and movement_policy.
@@ -1523,7 +1562,8 @@ impl Parse for BaseAbilityDef {
         let mut impact_vfx = None;
         let mut icon = None;
         let mut impact_delay = None;
-        let mut stun_seconds = None;
+        let mut control = None;
+        let mut control_duration = None;
         let mut statuses = Vec::new();
         let mut cleanse = None;
         let mut cast_mode = None;
@@ -1556,7 +1596,8 @@ impl Parse for BaseAbilityDef {
                 "impact_vfx" => impact_vfx = Some(input.parse::<LitStr>()?),
                 "icon" => icon = Some(input.parse::<LitStr>()?),
                 "impact_delay" => impact_delay = Some(input.parse::<LitFloat>()?),
-                "stun_seconds" => stun_seconds = Some(input.parse::<LitFloat>()?),
+                "control" => control = Some(input.parse::<Ident>()?),
+                "control_duration" => control_duration = Some(input.parse::<LitFloat>()?),
                 "statuses" => {
                     let content;
                     bracketed!(content in input);
@@ -1597,7 +1638,7 @@ impl Parse for BaseAbilityDef {
                         format!(
                             "unknown key `{other}` in #[base_ability(...)] (expected id, name, tags, range, geometry, \
                              potency, cast_time, cooldown, mana_cost, animation, impact_vfx, icon, impact_delay, \
-                             stun_seconds, statuses, channeling)"
+                             control, control_duration, statuses, channeling)"
                         )
                     ))
                 }
@@ -1633,7 +1674,8 @@ impl Parse for BaseAbilityDef {
             })?,
             icon,
             impact_delay,
-            stun_seconds,
+            control,
+            control_duration,
             statuses,
             cleanse,
             cast_mode,
@@ -1749,11 +1791,24 @@ pub fn base_ability(attr: TokenStream, item: TokenStream) -> TokenStream {
         },
         None => quote! {},
     };
-    let stun_seconds_method = match &def.stun_seconds {
-        Some(seconds) => quote! {
-            fn stun_seconds(&self) -> f32 { #seconds }
+    let control_method = match (&def.control, &def.control_duration) {
+        (Some(kind), Some(seconds)) => quote! {
+            fn control(&self) -> Option<crate::abilities::AppliedControl> {
+                Some(crate::abilities::AppliedControl {
+                    kind: crate::crowd_control::CrowdControlKind::#kind,
+                    duration_seconds: #seconds,
+                })
+            }
         },
-        None => quote! {},
+        (None, None) => quote! {},
+        _ => {
+            return syn::Error::new_spanned(
+                &input.ident,
+                "#[base_ability] control requires both `control = Kind` and `control_duration = ...`",
+            )
+            .to_compile_error()
+            .into();
+        }
     };
 
     // Cast mode override: if channeling is specified, generate cast_mode().
@@ -1825,7 +1880,7 @@ pub fn base_ability(attr: TokenStream, item: TokenStream) -> TokenStream {
                 #icon
             }
             #impact_delay_method
-            #stun_seconds_method
+            #control_method
             #cleanse_method
             fn additional_effects(&self) -> Vec<crate::effects::EffectSpec> {
                 vec![#(#status_effects),*]
@@ -2642,6 +2697,7 @@ pub fn root_word(attr: TokenStream, item: TokenStream) -> TokenStream {
 //     stats(health = 30.0, armor = 8.0),
 //     aggro = 8.0,
 //     leash_aggro = 20.0,
+//     respawn = 10.0,
 //     abilities = [Cleave],
 // )]
 // pub struct Goblin;
@@ -3069,6 +3125,117 @@ impl BossPhaseMacroDef {
     }
 }
 
+struct LootItemDef {
+    item: Path,
+    chance: LitInt,
+}
+
+impl Parse for LootItemDef {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let inner;
+        parenthesized!(inner in input);
+        let item: Path = inner.parse()?;
+        inner.parse::<Token![,]>()?;
+        let chance: LitInt = inner.parse()?;
+        let chance_val: u16 = chance.base10_parse()?;
+        if chance_val > 100 {
+            return Err(syn::Error::new_spanned(
+                &chance,
+                "loot chance must be 0..=100",
+            ));
+        }
+        if !inner.is_empty() {
+            return Err(inner.error("loot item is `(Item, chance)`"));
+        }
+        Ok(Self { item, chance })
+    }
+}
+
+struct LootDef {
+    gold_min: LitInt,
+    gold_max: LitInt,
+    items: Vec<LootItemDef>,
+}
+
+impl LootDef {
+    fn parse_from(content: ParseStream) -> syn::Result<Self> {
+        let mut gold_min = None;
+        let mut gold_max = None;
+        let mut items = Vec::new();
+        while !content.is_empty() {
+            let key: Ident = content.parse()?;
+            content.parse::<Token![=]>()?;
+            match key.to_string().as_str() {
+                "gold" => {
+                    let min: LitInt = content.parse()?;
+                    content.parse::<Token![..]>()?;
+                    let _inclusive = content.parse::<Token![=]>().ok();
+                    let max: LitInt = content.parse()?;
+                    let min_val: u64 = min.base10_parse()?;
+                    let max_val: u64 = max.base10_parse()?;
+                    if min_val > max_val {
+                        return Err(syn::Error::new_spanned(
+                            &max,
+                            "loot gold range start must be <= end",
+                        ));
+                    }
+                    gold_min = Some(min);
+                    gold_max = Some(max);
+                }
+                "items" => {
+                    let list;
+                    bracketed!(list in content);
+                    let punctuated: Punctuated<LootItemDef, Token![,]> =
+                        Punctuated::parse_terminated(&list)?;
+                    items = punctuated.into_iter().collect();
+                }
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        &key,
+                        format!("unknown loot key `{other}` (expected gold, items)"),
+                    ));
+                }
+            }
+            if content.peek(Token![,]) {
+                content.parse::<Token![,]>()?;
+            } else {
+                break;
+            }
+        }
+        let gold_min =
+            gold_min.ok_or_else(|| content.error("loot(...) requires `gold = min..max`"))?;
+        let gold_max =
+            gold_max.ok_or_else(|| content.error("loot(...) requires `gold = min..max`"))?;
+        Ok(Self {
+            gold_min,
+            gold_max,
+            items,
+        })
+    }
+
+    fn to_tokens(&self) -> TokenStream2 {
+        let min = &self.gold_min;
+        let max = &self.gold_max;
+        let drops: Vec<TokenStream2> = self
+            .items
+            .iter()
+            .map(|item| {
+                let path = &item.item;
+                let chance = &item.chance;
+                quote! {
+                    crate::loot::LootDrop::new(#path::ID, #chance)
+                }
+            })
+            .collect();
+        quote! {
+            Some(crate::loot::LootTable {
+                gold: ::std::ops::RangeInclusive::new(#min as u64, #max as u64),
+                drops: vec![#(#drops),*],
+            })
+        }
+    }
+}
+
 struct EnemyDef {
     id: LitStr,
     kind: EnemyKind,
@@ -3090,6 +3257,8 @@ struct EnemyDef {
     tint: Option<(LitFloat, LitFloat, LitFloat)>,
     blocks_movement: bool,
     collision: CollisionSpec,
+    respawn: LitFloat,
+    loot: Option<LootDef>,
 }
 
 impl Parse for EnemyDef {
@@ -3117,6 +3286,8 @@ impl Parse for EnemyDef {
         let mut tint = None;
         let mut blocks_movement = false;
         let mut collision = CollisionSpec::None;
+        let mut respawn = None;
+        let mut loot = None;
 
         while !input.is_empty() {
             let key: Ident = Ident::parse_any(input)?;
@@ -3126,6 +3297,10 @@ impl Parse for EnemyDef {
                 let content;
                 parenthesized!(content in input);
                 stats = Some(EnemyStatsDef::parse_from(&content)?);
+            } else if key_str == "loot" {
+                let content;
+                parenthesized!(content in input);
+                loot = Some(LootDef::parse_from(&content)?);
             } else {
                 input.parse::<Token![=]>()?;
                 match key_str.as_str() {
@@ -3181,6 +3356,19 @@ impl Parse for EnemyDef {
                     "tint" => tint = Some(parse_lit_triple(input)?),
                     "blocks_movement" => blocks_movement = input.parse::<LitBool>()?.value(),
                     "collision" => collision = parse_collision_dsl(input)?,
+                    "respawn" => {
+                        let value = parse_number_f32(input)?;
+                        let seconds: f32 = value
+                            .base10_parse()
+                            .map_err(|err| syn::Error::new_spanned(&value, err))?;
+                        if seconds <= 0.0 {
+                            return Err(syn::Error::new_spanned(
+                                &value,
+                                "#[enemy(...)] `respawn` must be greater than 0",
+                            ));
+                        }
+                        respawn = Some(value);
+                    }
                     other => {
                         return Err(syn::Error::new_spanned(
                             &key,
@@ -3188,7 +3376,7 @@ impl Parse for EnemyDef {
                                 "unknown key `{other}` in #[enemy(...)] (expected id, type, name, \
                                  icon, asset, stats, aggro, leash_aggro, acquire, origin, threat, \
                                  movement, abilities, arena, enrage_after, phases, scale, tint, \
-                                 blocks_movement, collision)"
+                                 blocks_movement, collision, respawn, loot)"
                             ),
                         ));
                     }
@@ -3289,6 +3477,10 @@ impl Parse for EnemyDef {
             tint,
             blocks_movement,
             collision,
+            respawn: respawn.ok_or_else(|| {
+                input.error("#[enemy(...)] requires `respawn = ...` with a value greater than 0")
+            })?,
+            loot,
         })
     }
 }
@@ -3354,6 +3546,11 @@ impl EnemyDef {
             .iter()
             .map(BossPhaseMacroDef::to_tokens)
             .collect();
+        let respawn = &self.respawn;
+        let loot_tokens = match &self.loot {
+            Some(loot) => loot.to_tokens(),
+            None => quote!(None),
+        };
         let register_call = match self.kind {
             EnemyKind::Normal => quote! {
                 registry.register_enemy(std::sync::Arc::new(#name))
@@ -3435,6 +3632,8 @@ impl EnemyDef {
                         arena_radius: #arena_tokens,
                         enrage_after_seconds: #enrage_tokens,
                         phases: vec![#(#phase_tokens),*],
+                        respawn_seconds: #respawn,
+                        loot: #loot_tokens,
                     }
                 }
             }
@@ -3614,7 +3813,7 @@ enum NpcInteraction {
     Shop { inventory_id: String },
     Market { market_id: String },
     Dialogue { dialogue_tree_id: String },
-    Craft { category: String },
+    Craft { categories: Vec<String> },
 }
 
 struct NpcAttributes {
@@ -3645,7 +3844,7 @@ fn parse_npc_interaction(value: &str) -> Result<NpcInteraction, String> {
     let value = value.trim();
     let Some((kind, rest)) = value.split_once('(') else {
         return Err(format!(
-            "#[npc(...)] `interaction` must be shop(\"...\"), market(\"...\"), dialogue(\"...\"), or craft(Weapon), got `{value}`"
+            "#[npc(...)] `interaction` must be shop(\"...\"), market(\"...\"), dialogue(\"...\"), or craft(Weapon, Tool), got `{value}`"
         ));
     };
     let kind = kind.trim();
@@ -3668,14 +3867,33 @@ fn parse_npc_interaction(value: &str) -> Result<NpcInteraction, String> {
             dialogue_tree_id: id,
         }),
         "craft" => {
-            match id.as_str() {
-                "Weapon" | "Armor" | "Consumable" | "Material" | "Quest" | "Accessory" => {
-                    Ok(NpcInteraction::Craft { category: id })
-                }
-                other => Err(format!(
-                    "#[npc(...)] `craft(...)` expected an ItemCategory (Weapon | Armor | Consumable | Material | Quest | Accessory), got `{other}`"
-                )),
+            const ALLOWED: &[&str] = &[
+                "Weapon",
+                "Armor",
+                "Consumable",
+                "Material",
+                "Quest",
+                "Accessory",
+                "Tool",
+            ];
+            let categories: Vec<String> = id
+                .split(',')
+                .map(|part| part.trim().to_string())
+                .filter(|part| !part.is_empty())
+                .collect();
+            if categories.is_empty() {
+                return Err(
+                    "#[npc(...)] `craft(...)` requires at least one ItemCategory".to_string(),
+                );
             }
+            for category in &categories {
+                if !ALLOWED.contains(&category.as_str()) {
+                    return Err(format!(
+                        "#[npc(...)] `craft(...)` expected an ItemCategory (Weapon | Armor | Consumable | Material | Quest | Accessory | Tool), got `{category}`"
+                    ));
+                }
+            }
+            Ok(NpcInteraction::Craft { categories })
         }
         other => Err(format!(
             "#[npc(...)] unknown interaction `{other}` (expected shop, market, dialogue, craft)"
@@ -3740,11 +3958,14 @@ fn expand_npc(input: &DeriveInput, attrs: NpcAttributes) -> Result<TokenStream2,
                 dialogue_tree_id: #dialogue_tree_id.to_string(),
             }
         },
-        NpcInteraction::Craft { category } => {
-            let category_ident = Ident::new(category, proc_macro2::Span::call_site());
+        NpcInteraction::Craft { categories } => {
+            let category_idents: Vec<Ident> = categories
+                .iter()
+                .map(|category| Ident::new(category, proc_macro2::Span::call_site()))
+                .collect();
             quote! {
                 crate::placeables::InteractionKind::Craft {
-                    category: crate::items::ItemCategory::#category_ident,
+                    categories: vec![#(crate::items::ItemCategory::#category_idents),*],
                 }
             }
         }

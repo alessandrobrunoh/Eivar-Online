@@ -2,8 +2,9 @@
 //! Adds crowd control through rooting effect.
 
 use bevymmo_gameplay::abilities::{
-    AbilityBlueprint, AbilityParams, AbilityTag, AncientWordEffect, BaseAbility,
+    AbilityBlueprint, AbilityParams, AbilityTag, AncientWordEffect, AppliedControl, BaseAbility,
 };
+use bevymmo_gameplay::crowd_control::CrowdControlKind;
 use bevymmo_gameplay::spells::context::SpellCastContext;
 use bevymmo_props_macro::ancient_word;
 
@@ -34,8 +35,10 @@ impl AncientWordEffect for Anchor {
         // Root effects have reduced damage but high control value
         blueprint.params.potency *= 0.75;
 
-        // Add stun component for root duration
-        blueprint.stun_seconds = Self::ROOT_DURATION_SECS;
+        blueprint.control = Some(AppliedControl {
+            kind: CrowdControlKind::Root,
+            duration_seconds: Self::ROOT_DURATION_SECS,
+        });
 
         // Ensure ground tag is present
         if !blueprint.has_tag(AbilityTag::Ground) {
@@ -76,7 +79,7 @@ mod tests {
             animation: "anchor_cast",
             impact_vfx: "root_effect",
             impact_delay: 0.4,
-            stun_seconds: 0.0,
+            control: None,
             payload: crate::abilities::ManifestationPayload::default(),
         };
 
@@ -84,8 +87,9 @@ mod tests {
 
         // Damage reduced by 25%
         assert!((blueprint.params.potency - 60.0).abs() < f32::EPSILON);
-        // Stun set to root duration
-        assert!((blueprint.stun_seconds - 1.5).abs() < f32::EPSILON);
+        let control = blueprint.control.expect("root control");
+        assert_eq!(control.kind, CrowdControlKind::Root);
+        assert!((control.duration_seconds - 1.5).abs() < f32::EPSILON);
         assert!(blueprint.has_tag(AbilityTag::Ground));
     }
 

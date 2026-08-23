@@ -11,6 +11,7 @@ use super::vec_3_row_type::Vec3Row;
 #[sats(crate = __lib)]
 pub struct BossState {
     pub entity_id: u64,
+    pub kind_id: String,
     pub phase: BossPhaseRow,
     pub arena_center: Vec3Row,
     pub arena_radius: f32,
@@ -28,6 +29,7 @@ impl __sdk::InModule for BossState {
 /// Provides typed access to columns for query building.
 pub struct BossStateCols {
     pub entity_id: __sdk::__query_builder::Col<BossState, u64>,
+    pub kind_id: __sdk::__query_builder::Col<BossState, String>,
     pub phase: __sdk::__query_builder::Col<BossState, BossPhaseRow>,
     pub arena_center: __sdk::__query_builder::Col<BossState, Vec3Row>,
     pub arena_radius: __sdk::__query_builder::Col<BossState, f32>,
@@ -41,6 +43,7 @@ impl __sdk::__query_builder::HasCols for BossState {
     fn cols(table_name: &'static str) -> Self::Cols {
         BossStateCols {
             entity_id: __sdk::__query_builder::Col::new(table_name, "entity_id"),
+            kind_id: __sdk::__query_builder::Col::new(table_name, "kind_id"),
             phase: __sdk::__query_builder::Col::new(table_name, "phase"),
             arena_center: __sdk::__query_builder::Col::new(table_name, "arena_center"),
             arena_radius: __sdk::__query_builder::Col::new(table_name, "arena_radius"),

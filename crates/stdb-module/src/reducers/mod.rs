@@ -13,6 +13,7 @@ pub mod crafting;
 pub mod economy;
 pub mod gathering;
 pub mod items;
+pub mod loot;
 pub mod lifecycle;
 pub mod market;
 pub mod movement;

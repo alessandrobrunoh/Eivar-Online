@@ -17,9 +17,17 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::abilities::blueprint::AbilityBlueprint;
+use crate::crowd_control::CrowdControlKind;
 use crate::effects::EffectSpec;
 use crate::registry::Registry;
 use crate::spells::context::{AoeShape, SpellCastContext, TargetingMode};
+
+/// Hard control applied on a damaging impact (stun, root, silence).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AppliedControl {
+    pub kind: CrowdControlKind,
+    pub duration_seconds: f32,
+}
 
 /// Raggio d'impatto di una palla lanciata da un gesto `Projectile`.
 pub const PROJECTILE_HIT_RADIUS: f32 = 1.0;
@@ -129,6 +137,16 @@ impl AbilityCastMode {
     /// Whether this mode repeats while the key is held.
     pub fn is_channeling(&self) -> bool {
         matches!(self, AbilityCastMode::Channeling { .. })
+    }
+
+    /// Whether leftover walking should be dropped when this mode begins.
+    ///
+    /// Instant fires on the same tick and can be used on the move. CastTime and
+    /// Channeling open a persisted wind-up: leftover chase would cancel
+    /// CastTime (always) and InterruptOnMove channels, so NPCs plant until the
+    /// ability finishes.
+    pub fn holds_still(&self) -> bool {
+        !self.is_instant()
     }
 
     /// Total duration for the progress bar (cast_time or max channel time).
@@ -260,10 +278,9 @@ pub trait BaseAbility: Send + Sync + 'static {
         0.0
     }
 
-    /// Stun applicato all'impatto, in secondi. Default 0.0 = il gesto non ha
-    /// componente di controllo, solo danno.
-    fn stun_seconds(&self) -> f32 {
-        0.0
+    /// Hard control applied on a damaging impact. Default none.
+    fn control(&self) -> Option<AppliedControl> {
+        None
     }
 
     fn has_tag(&self, tag: AbilityTag) -> bool {
@@ -690,6 +707,7 @@ mod tests {
         let ability = InstantAbility;
         assert_eq!(ability.cast_mode(), AbilityCastMode::Instant);
         assert!(ability.cast_mode().is_instant());
+        assert!(!ability.cast_mode().holds_still());
     }
 
     #[test]
@@ -697,6 +715,23 @@ mod tests {
         let ability = CastTimeAbility;
         assert!(matches!(ability.cast_mode(), AbilityCastMode::CastTime));
         assert!(!ability.cast_mode().is_instant());
+        assert!(ability.cast_mode().holds_still());
+    }
+
+    #[test]
+    fn wind_up_and_channel_hold_still() {
+        assert!(!AbilityCastMode::Instant.holds_still());
+        assert!(AbilityCastMode::CastTime.holds_still());
+        assert!(AbilityCastMode::Channeling {
+            tick_interval_seconds: 0.2,
+            movement_policy: ChannelMovementPolicy::InterruptOnMove,
+        }
+        .holds_still());
+        assert!(AbilityCastMode::Channeling {
+            tick_interval_seconds: 0.2,
+            movement_policy: ChannelMovementPolicy::AllowMovement,
+        }
+        .holds_still());
     }
 
     #[test]

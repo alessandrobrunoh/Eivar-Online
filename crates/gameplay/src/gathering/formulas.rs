@@ -1,5 +1,9 @@
 //! Shared gathering formulas. One implementation, used by the module tick.
 
+use crate::items::effects::ItemEffect;
+use crate::items::GatheringToolKind;
+use crate::stats::events::{ModifierOp, StatField};
+
 /// Floor on channel duration so gathering speed cannot outrun the tick.
 pub const DEFAULT_MIN_CHANNEL_SECONDS: f32 = 0.25;
 
@@ -13,6 +17,44 @@ pub fn channel_duration(base: f32, min: f32, speed: f32) -> f32 {
     }
     let speed = speed.max(0.0);
     (base * 100.0 / (100.0 + speed)).clamp(min, base)
+}
+
+/// Speed and bonus granted by equipped items whose gathering-tool kind is
+/// listed on the resource.
+///
+/// Only `StatBonus` with [`ModifierOp::Add`] on [`StatField::GatheringSpeed`]
+/// / [`StatField::GatheringBonus`] is summed. Items with no kind, or a kind
+/// not in `bonus_tools`, contribute nothing. An empty list is `(0.0, 0.0)`.
+pub fn gathering_tool_bonuses<'a, I>(bonus_tools: &[GatheringToolKind], equipped: I) -> (f32, f32)
+where
+    I: IntoIterator<Item = (Option<GatheringToolKind>, &'a [ItemEffect])>,
+{
+    let mut speed = 0.0;
+    let mut bonus = 0.0;
+    for (kind, effects) in equipped {
+        let Some(kind) = kind else {
+            continue;
+        };
+        if !bonus_tools.contains(&kind) {
+            continue;
+        }
+        for effect in effects {
+            let ItemEffect::StatBonus {
+                field,
+                op: ModifierOp::Add,
+                value,
+            } = effect
+            else {
+                continue;
+            };
+            match field {
+                StatField::GatheringSpeed => speed += *value,
+                StatField::GatheringBonus => bonus += *value,
+                _ => {}
+            }
+        }
+    }
+    (speed, bonus)
 }
 
 /// Extra pieces from gathering bonus. `roll` is in `[0, 1)`.
@@ -197,6 +239,92 @@ mod tests {
         assert_eq!(out.remaining_pieces, 5);
         assert!(out.session_ends);
         assert!(!out.node_depleted);
+    }
+
+    #[test]
+    fn matching_axe_adds_speed_and_bonus() {
+        let effects = [
+            ItemEffect::StatBonus {
+                field: StatField::GatheringSpeed,
+                op: ModifierOp::Add,
+                value: 50.0,
+            },
+            ItemEffect::StatBonus {
+                field: StatField::GatheringBonus,
+                op: ModifierOp::Add,
+                value: 0.25,
+            },
+        ];
+        let (speed, bonus) = gathering_tool_bonuses(
+            &[GatheringToolKind::Axe],
+            [(Some(GatheringToolKind::Axe), effects.as_slice())],
+        );
+        assert_eq!(speed, 50.0);
+        assert_eq!(bonus, 0.25);
+    }
+
+    #[test]
+    fn mismatched_hammer_does_not_buff_an_axe_node() {
+        let effects = [ItemEffect::StatBonus {
+            field: StatField::GatheringSpeed,
+            op: ModifierOp::Add,
+            value: 50.0,
+        }];
+        let (speed, bonus) = gathering_tool_bonuses(
+            &[GatheringToolKind::Axe],
+            [(Some(GatheringToolKind::Hammer), effects.as_slice())],
+        );
+        assert_eq!(speed, 0.0);
+        assert_eq!(bonus, 0.0);
+    }
+
+    #[test]
+    fn empty_bonus_tools_ignores_every_equipped_item() {
+        let effects = [ItemEffect::StatBonus {
+            field: StatField::GatheringSpeed,
+            op: ModifierOp::Add,
+            value: 50.0,
+        }];
+        let (speed, bonus) =
+            gathering_tool_bonuses(&[], [(Some(GatheringToolKind::Axe), effects.as_slice())]);
+        assert_eq!(speed, 0.0);
+        assert_eq!(bonus, 0.0);
+    }
+
+    #[test]
+    fn two_matching_kinds_stack() {
+        let axe = [ItemEffect::StatBonus {
+            field: StatField::GatheringSpeed,
+            op: ModifierOp::Add,
+            value: 50.0,
+        }];
+        let hammer = [ItemEffect::StatBonus {
+            field: StatField::GatheringBonus,
+            op: ModifierOp::Add,
+            value: 0.25,
+        }];
+        let (speed, bonus) = gathering_tool_bonuses(
+            &[GatheringToolKind::Axe, GatheringToolKind::Hammer],
+            [
+                (Some(GatheringToolKind::Axe), axe.as_slice()),
+                (Some(GatheringToolKind::Hammer), hammer.as_slice()),
+            ],
+        );
+        assert_eq!(speed, 50.0);
+        assert_eq!(bonus, 0.25);
+    }
+
+    #[test]
+    fn item_without_a_kind_never_contributes() {
+        let effects = [ItemEffect::StatBonus {
+            field: StatField::GatheringSpeed,
+            op: ModifierOp::Add,
+            value: 50.0,
+        }];
+        let (speed, bonus) =
+            gathering_tool_bonuses(&[GatheringToolKind::Axe], [(None, effects.as_slice())]);
+        assert_eq!(speed, 0.0);
+        assert_eq!(bonus, 0.0);
     }
 
     #[test]

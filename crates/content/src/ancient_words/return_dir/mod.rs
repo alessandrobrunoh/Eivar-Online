@@ -67,7 +67,7 @@ mod tests {
             animation: "throw",
             impact_vfx: "catch",
             impact_delay: 0.5,
-            stun_seconds: 0.0,
+            control: None,
             payload: crate::abilities::ManifestationPayload::default(),
         };
 

@@ -9,6 +9,7 @@ pub mod components;
 pub mod definition;
 pub mod effects;
 pub mod events;
+pub mod gathering_tool;
 pub mod instance;
 pub mod recipe;
 pub mod registry;
@@ -18,6 +19,7 @@ pub use components::{EquipSlot, Equipment, Inventory, StackOpError, INVENTORY_CA
 pub use definition::{Item, ItemCategory, ItemConfig, ItemRarity};
 pub use effects::ItemEffect;
 pub use events::{EquipItemCommand, MoveItemCommand, UnequipItemCommand};
+pub use gathering_tool::GatheringToolKind;
 pub use instance::{
     ItemInstance, ItemInstanceId, STARTER_WEAPON_ITEM_ID, STARTER_WEAPON_ROOT_WORD,
 };

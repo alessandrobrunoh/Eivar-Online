@@ -31,7 +31,6 @@ pub mod cast_ended_event_type;
 pub mod cast_ended_table;
 pub mod cast_kind_row_type;
 pub mod cast_source_row_type;
-pub mod cast_spell_reducer;
 pub mod cast_state_table;
 pub mod cast_state_type;
 pub mod cast_weapon_reducer;
@@ -88,6 +87,14 @@ pub mod known_ancient_language_table_type;
 pub mod leave_reducer;
 pub mod login_reducer;
 pub mod logout_reducer;
+pub mod loot_bag_slot_table;
+pub mod loot_bag_slot_type;
+pub mod loot_bag_table;
+pub mod loot_bag_type;
+pub mod loot_source_row_type;
+pub mod loot_take_all_reducer;
+pub mod loot_take_gold_reducer;
+pub mod loot_take_reducer;
 pub mod market_buy_order_table;
 pub mod market_buy_order_type;
 pub mod market_buy_reducer;
@@ -143,7 +150,6 @@ pub mod session_table;
 pub mod session_type;
 pub mod set_ability_selection_reducer;
 pub mod set_armor_inscription_reducer;
-pub mod set_hotbar_spell_reducer;
 pub mod set_resonance_xp_reducer;
 pub mod set_root_inscription_reducer;
 pub mod slot_inscription_row_type;
@@ -192,7 +198,6 @@ pub use cast_ended_event_type::CastEndedEvent;
 pub use cast_ended_table::*;
 pub use cast_kind_row_type::CastKindRow;
 pub use cast_source_row_type::CastSourceRow;
-pub use cast_spell_reducer::cast_spell;
 pub use cast_state_table::*;
 pub use cast_state_type::CastState;
 pub use cast_weapon_reducer::cast_weapon;
@@ -249,6 +254,14 @@ pub use known_ancient_language_table_type::KnownAncientLanguageTable;
 pub use leave_reducer::leave;
 pub use login_reducer::login;
 pub use logout_reducer::logout;
+pub use loot_bag_slot_table::*;
+pub use loot_bag_slot_type::LootBagSlot;
+pub use loot_bag_table::*;
+pub use loot_bag_type::LootBag;
+pub use loot_source_row_type::LootSourceRow;
+pub use loot_take_all_reducer::loot_take_all;
+pub use loot_take_gold_reducer::loot_take_gold;
+pub use loot_take_reducer::loot_take;
 pub use market_buy_order_table::*;
 pub use market_buy_order_type::MarketBuyOrder;
 pub use market_buy_reducer::market_buy;
@@ -304,7 +317,6 @@ pub use session_table::*;
 pub use session_type::Session;
 pub use set_ability_selection_reducer::set_ability_selection;
 pub use set_armor_inscription_reducer::set_armor_inscription;
-pub use set_hotbar_spell_reducer::set_hotbar_spell;
 pub use set_resonance_xp_reducer::set_resonance_xp;
 pub use set_root_inscription_reducer::set_root_inscription;
 pub use slot_inscription_row_type::SlotInscriptionRow;
@@ -354,11 +366,6 @@ pub enum Reducer {
     },
     CancelSellOrder {
         order_id: u64,
-    },
-    CastSpell {
-        spell_id: String,
-        target_entity: Option<u64>,
-        target_position: Option<Vec3Row>,
     },
     CastWeapon {
         slot: String,
@@ -414,6 +421,16 @@ pub enum Reducer {
         password: String,
     },
     Logout,
+    LootTake {
+        bag_id: u64,
+        slot_index: u8,
+    },
+    LootTakeAll {
+        bag_id: u64,
+    },
+    LootTakeGold {
+        bag_id: u64,
+    },
     MarketBuy {
         npc_entity_id: u64,
         sell_order_id: u64,
@@ -482,10 +499,6 @@ pub enum Reducer {
         root_word: Option<String>,
         secondary_words: Vec<String>,
     },
-    SetHotbarSpell {
-        slot: String,
-        spell_id: Option<String>,
-    },
     SetResonanceXp {
         root_word_id: String,
         xp: u64,
@@ -529,7 +542,6 @@ impl __sdk::Reducer for Reducer {
             Reducer::AwardResonanceXp { .. } => "award_resonance_xp",
             Reducer::CancelBuyOrder { .. } => "cancel_buy_order",
             Reducer::CancelSellOrder { .. } => "cancel_sell_order",
-            Reducer::CastSpell { .. } => "cast_spell",
             Reducer::CastWeapon { .. } => "cast_weapon",
             Reducer::ClaimNpcItem { .. } => "claim_npc_item",
             Reducer::CombineItem { .. } => "combine_item",
@@ -546,6 +558,9 @@ impl __sdk::Reducer for Reducer {
             Reducer::Leave => "leave",
             Reducer::Login { .. } => "login",
             Reducer::Logout => "logout",
+            Reducer::LootTake { .. } => "loot_take",
+            Reducer::LootTakeAll { .. } => "loot_take_all",
+            Reducer::LootTakeGold { .. } => "loot_take_gold",
             Reducer::MarketBuy { .. } => "market_buy",
             Reducer::MarketSell { .. } => "market_sell",
             Reducer::MoveItem { .. } => "move_item",
@@ -564,7 +579,6 @@ impl __sdk::Reducer for Reducer {
             Reducer::SendChatMessage { .. } => "send_chat_message",
             Reducer::SetAbilitySelection { .. } => "set_ability_selection",
             Reducer::SetArmorInscription { .. } => "set_armor_inscription",
-            Reducer::SetHotbarSpell { .. } => "set_hotbar_spell",
             Reducer::SetResonanceXp { .. } => "set_resonance_xp",
             Reducer::SetRootInscription { .. } => "set_root_inscription",
             Reducer::SplitItem { .. } => "split_item",
@@ -613,15 +627,6 @@ impl __sdk::Reducer for Reducer {
                     order_id: order_id.clone(),
                 })
             }
-            Reducer::CastSpell {
-                spell_id,
-                target_entity,
-                target_position,
-            } => __sats::bsatn::to_vec(&cast_spell_reducer::CastSpellArgs {
-                spell_id: spell_id.clone(),
-                target_entity: target_entity.clone(),
-                target_position: target_position.clone(),
-            }),
             Reducer::CastWeapon {
                 slot,
                 target_entity,
@@ -712,6 +717,22 @@ impl __sdk::Reducer for Reducer {
                 })
             }
             Reducer::Logout => __sats::bsatn::to_vec(&logout_reducer::LogoutArgs {}),
+            Reducer::LootTake { bag_id, slot_index } => {
+                __sats::bsatn::to_vec(&loot_take_reducer::LootTakeArgs {
+                    bag_id: bag_id.clone(),
+                    slot_index: slot_index.clone(),
+                })
+            }
+            Reducer::LootTakeAll { bag_id } => {
+                __sats::bsatn::to_vec(&loot_take_all_reducer::LootTakeAllArgs {
+                    bag_id: bag_id.clone(),
+                })
+            }
+            Reducer::LootTakeGold { bag_id } => {
+                __sats::bsatn::to_vec(&loot_take_gold_reducer::LootTakeGoldArgs {
+                    bag_id: bag_id.clone(),
+                })
+            }
             Reducer::MarketBuy {
                 npc_entity_id,
                 sell_order_id,
@@ -819,12 +840,6 @@ impl __sdk::Reducer for Reducer {
                 root_word: root_word.clone(),
                 secondary_words: secondary_words.clone(),
             }),
-            Reducer::SetHotbarSpell { slot, spell_id } => {
-                __sats::bsatn::to_vec(&set_hotbar_spell_reducer::SetHotbarSpellArgs {
-                    slot: slot.clone(),
-                    spell_id: spell_id.clone(),
-                })
-            }
             Reducer::SetResonanceXp {
                 root_word_id,
                 xp,
@@ -900,6 +915,8 @@ pub struct DbUpdate {
     hotbar: __sdk::TableUpdate<Hotbar>,
     inventory: __sdk::TableUpdate<InventoryTable>,
     known_ancient_language: __sdk::TableUpdate<KnownAncientLanguageTable>,
+    loot_bag: __sdk::TableUpdate<LootBag>,
+    loot_bag_slot: __sdk::TableUpdate<LootBagSlot>,
     market: __sdk::TableUpdate<Market>,
     market_buy_order: __sdk::TableUpdate<MarketBuyOrder>,
     market_sell_order: __sdk::TableUpdate<MarketSellOrder>,
@@ -989,6 +1006,12 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "known_ancient_language" => db_update.known_ancient_language.append(
                     known_ancient_language_table::parse_table_update(table_update)?,
                 ),
+                "loot_bag" => db_update
+                    .loot_bag
+                    .append(loot_bag_table::parse_table_update(table_update)?),
+                "loot_bag_slot" => db_update
+                    .loot_bag_slot
+                    .append(loot_bag_slot_table::parse_table_update(table_update)?),
                 "market" => db_update
                     .market
                     .append(market_table::parse_table_update(table_update)?),
@@ -1135,6 +1158,12 @@ impl __sdk::DbUpdate for DbUpdate {
                 &self.known_ancient_language,
             )
             .with_updates_by_pk(|row| &row.character_id);
+        diff.loot_bag = cache
+            .apply_diff_to_table::<LootBag>("loot_bag", &self.loot_bag)
+            .with_updates_by_pk(|row| &row.id);
+        diff.loot_bag_slot = cache
+            .apply_diff_to_table::<LootBagSlot>("loot_bag_slot", &self.loot_bag_slot)
+            .with_updates_by_pk(|row| &row.id);
         diff.market = cache
             .apply_diff_to_table::<Market>("market", &self.market)
             .with_updates_by_pk(|row| &row.id);
@@ -1260,6 +1289,12 @@ impl __sdk::DbUpdate for DbUpdate {
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "known_ancient_language" => db_update
                     .known_ancient_language
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "loot_bag" => db_update
+                    .loot_bag
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "loot_bag_slot" => db_update
+                    .loot_bag_slot
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "market" => db_update
                     .market
@@ -1397,6 +1432,12 @@ impl __sdk::DbUpdate for DbUpdate {
                 "known_ancient_language" => db_update
                     .known_ancient_language
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "loot_bag" => db_update
+                    .loot_bag
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "loot_bag_slot" => db_update
+                    .loot_bag_slot
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "market" => db_update
                     .market
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -1495,6 +1536,8 @@ pub struct AppliedDiff<'r> {
     hotbar: __sdk::TableAppliedDiff<'r, Hotbar>,
     inventory: __sdk::TableAppliedDiff<'r, InventoryTable>,
     known_ancient_language: __sdk::TableAppliedDiff<'r, KnownAncientLanguageTable>,
+    loot_bag: __sdk::TableAppliedDiff<'r, LootBag>,
+    loot_bag_slot: __sdk::TableAppliedDiff<'r, LootBagSlot>,
     market: __sdk::TableAppliedDiff<'r, Market>,
     market_buy_order: __sdk::TableAppliedDiff<'r, MarketBuyOrder>,
     market_sell_order: __sdk::TableAppliedDiff<'r, MarketSellOrder>,
@@ -1591,6 +1634,12 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         callbacks.invoke_table_row_callbacks::<KnownAncientLanguageTable>(
             "known_ancient_language",
             &self.known_ancient_language,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<LootBag>("loot_bag", &self.loot_bag, event);
+        callbacks.invoke_table_row_callbacks::<LootBagSlot>(
+            "loot_bag_slot",
+            &self.loot_bag_slot,
             event,
         );
         callbacks.invoke_table_row_callbacks::<Market>("market", &self.market, event);
@@ -2338,6 +2387,8 @@ impl __sdk::SpacetimeModule for RemoteModule {
         hotbar_table::register_table(client_cache);
         inventory_table::register_table(client_cache);
         known_ancient_language_table::register_table(client_cache);
+        loot_bag_table::register_table(client_cache);
+        loot_bag_slot_table::register_table(client_cache);
         market_table::register_table(client_cache);
         market_buy_order_table::register_table(client_cache);
         market_sell_order_table::register_table(client_cache);
@@ -2381,6 +2432,8 @@ impl __sdk::SpacetimeModule for RemoteModule {
         "hotbar",
         "inventory",
         "known_ancient_language",
+        "loot_bag",
+        "loot_bag_slot",
         "market",
         "market_buy_order",
         "market_sell_order",

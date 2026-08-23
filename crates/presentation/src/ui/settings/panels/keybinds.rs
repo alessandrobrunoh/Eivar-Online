@@ -25,7 +25,7 @@ pub fn spawn_keybinds_panel(
     let scroll_wrapper = spawn_scroll_view(commands, parent, theme, |commands| {
         let panel = commands
             .spawn((Node {
-                width: Val::Px(520.0),
+                width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(8.0),
                 padding: UiRect::all(Val::Px(24.0)),

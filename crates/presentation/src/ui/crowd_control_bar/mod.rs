@@ -1,4 +1,4 @@
-//! Screen-space Crowd Control bar (orange, draining) projected above stunned entities.
+//! Screen-space Crowd Control bar projected above stunned, rooted or silenced entities.
 
 pub mod components;
 mod systems;

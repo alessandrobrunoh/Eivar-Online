@@ -15,6 +15,7 @@ pub struct CrowdControl {
     pub kind: CrowdControlKindRow,
     pub remaining_seconds: f32,
     pub total_seconds: f32,
+    pub origin_status_instance_id: u64,
 }
 
 impl __sdk::InModule for CrowdControl {
@@ -31,6 +32,7 @@ pub struct CrowdControlCols {
     pub kind: __sdk::__query_builder::Col<CrowdControl, CrowdControlKindRow>,
     pub remaining_seconds: __sdk::__query_builder::Col<CrowdControl, f32>,
     pub total_seconds: __sdk::__query_builder::Col<CrowdControl, f32>,
+    pub origin_status_instance_id: __sdk::__query_builder::Col<CrowdControl, u64>,
 }
 
 impl __sdk::__query_builder::HasCols for CrowdControl {
@@ -43,6 +45,10 @@ impl __sdk::__query_builder::HasCols for CrowdControl {
             kind: __sdk::__query_builder::Col::new(table_name, "kind"),
             remaining_seconds: __sdk::__query_builder::Col::new(table_name, "remaining_seconds"),
             total_seconds: __sdk::__query_builder::Col::new(table_name, "total_seconds"),
+            origin_status_instance_id: __sdk::__query_builder::Col::new(
+                table_name,
+                "origin_status_instance_id",
+            ),
         }
     }
 }
@@ -53,6 +59,7 @@ impl __sdk::__query_builder::HasCols for CrowdControl {
 pub struct CrowdControlIxCols {
     pub entity_id: __sdk::__query_builder::IxCol<CrowdControl, u64>,
     pub id: __sdk::__query_builder::IxCol<CrowdControl, u64>,
+    pub origin_status_instance_id: __sdk::__query_builder::IxCol<CrowdControl, u64>,
 }
 
 impl __sdk::__query_builder::HasIxCols for CrowdControl {
@@ -61,6 +68,10 @@ impl __sdk::__query_builder::HasIxCols for CrowdControl {
         CrowdControlIxCols {
             entity_id: __sdk::__query_builder::IxCol::new(table_name, "entity_id"),
             id: __sdk::__query_builder::IxCol::new(table_name, "id"),
+            origin_status_instance_id: __sdk::__query_builder::IxCol::new(
+                table_name,
+                "origin_status_instance_id",
+            ),
         }
     }
 }

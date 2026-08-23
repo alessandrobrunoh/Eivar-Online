@@ -60,8 +60,8 @@ use crate::rows::{
     known_ancient_language_from_rows,
 };
 use crate::tables::{
-    equipment, game_entity, inventory, known_ancient_language, market_sell_order, player,
-    EntityKindRow, EquipmentTable, InventoryTable,
+    equipment, game_entity, inventory, known_ancient_language, loot_bag_slot, market_sell_order,
+    player, EntityKindRow, EquipmentTable, InventoryTable,
 };
 
 // ---------------------------------------------------------------------------
@@ -786,6 +786,33 @@ pub fn grant_items(
     Ok(added)
 }
 
+/// Places an existing esemplare into the bag, keeping its `instance_id` and
+/// inscriptions. Used by loot so a corpse dump is not a re-mint.
+pub(crate) fn grant_instance(
+    ctx: &ReducerContext,
+    character_id: Uuid,
+    instance: ItemInstance,
+    stacks: bool,
+) -> Result<Option<ItemInstance>, String> {
+    let mut inventory = load_inventory(ctx, character_id)?;
+    let leftover = inventory
+        .insert_instance(instance, stacks)
+        .map_err(|error| error.to_string())?;
+    let mut next_id = next_instance_id(ctx);
+    for slot in &mut inventory.slots {
+        let Some(item) = slot else {
+            continue;
+        };
+        if item.instance_id.is_assigned() {
+            continue;
+        }
+        item.instance_id = ItemInstanceId(next_id);
+        next_id += 1;
+    }
+    store_inventory(ctx, character_id, &inventory);
+    Ok(leftover)
+}
+
 /// Moves the granted starter staff from inventory onto the weapon slot and
 /// inscribes the default Root Word. Called from `join` after both tables exist.
 pub(crate) fn equip_granted_starter_staff(
@@ -847,10 +874,16 @@ pub(crate) fn next_instance_id(ctx: &ReducerContext) -> u64 {
         .market_sell_order()
         .iter()
         .map(|row| row.item.instance_id);
+    let from_loot = ctx
+        .db
+        .loot_bag_slot()
+        .iter()
+        .map(|row| row.item.instance_id);
 
     from_inventories
         .chain(from_equipment)
         .chain(from_orders)
+        .chain(from_loot)
         .max()
         .unwrap_or(0)
         + 1
@@ -904,7 +937,7 @@ pub(crate) fn store_inventory(ctx: &ReducerContext, character_id: Uuid, inventor
     });
 }
 
-fn load_equipment(ctx: &ReducerContext, character_id: Uuid) -> Result<Equipment, String> {
+pub(crate) fn load_equipment(ctx: &ReducerContext, character_id: Uuid) -> Result<Equipment, String> {
     ctx.db
         .equipment()
         .character_id()
@@ -913,7 +946,7 @@ fn load_equipment(ctx: &ReducerContext, character_id: Uuid) -> Result<Equipment,
         .ok_or_else(|| "no character for this identity; call `join` first".to_string())
 }
 
-fn store_equipment(ctx: &ReducerContext, character_id: Uuid, equipment: &Equipment) {
+pub(crate) fn store_equipment(ctx: &ReducerContext, character_id: Uuid, equipment: &Equipment) {
     ctx.db.equipment().character_id().update(EquipmentTable {
         character_id,
         slots: equipment_to_rows(equipment),

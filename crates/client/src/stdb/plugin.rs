@@ -53,6 +53,7 @@ use bevymmo_gameplay::effects::{ActiveStatusSnapshot, ActiveStatuses};
 use bevymmo_gameplay::entity::boss::components::{Boss, BossArena, BossPhase};
 use bevymmo_gameplay::entity::components::{EntityKind, EntityState, GameEntity, PlayerName};
 use bevymmo_gameplay::gathering::{ActiveGather, Harvestable};
+use crate::loot::{LootBagMarker, LootBagView, OpenLootBag, WorldLoot};
 use bevymmo_gameplay::items::components::{Equipment, Inventory};
 use bevymmo_gameplay::items::{ItemId, ItemRegistry};
 use bevymmo_gameplay::stats::components::{CombatStats, GatheringStats, MovementStats, VitalStats};
@@ -91,6 +92,8 @@ use super::module_bindings::join_reducer::join;
 use super::module_bindings::known_ancient_language_table::KnownAncientLanguageTableAccess;
 use super::module_bindings::leave_reducer::leave;
 use super::module_bindings::login_reducer::login;
+use super::module_bindings::loot_bag_slot_table::LootBagSlotTableAccess;
+use super::module_bindings::loot_bag_table::LootBagTableAccess;
 use super::module_bindings::logout_reducer::logout;
 use super::module_bindings::market_buy_order_table::MarketBuyOrderTableAccess;
 use super::module_bindings::market_sell_order_table::MarketSellOrderTableAccess;
@@ -110,8 +113,9 @@ use super::module_bindings::{
     CharacterWallet, ColorRow, Cooldown, CraftSession, CrowdControl, CrowdControlKindRow,
     DbConnection, EntityKindRow, EntityStateRow, EntityStats, EquipmentTable,
     GameEntity as EntityRow, GatherSession, GatherYieldEvent, Hotbar, InventoryTable,
-    ItemInstanceRow, KnownAncientLanguageTable, MarketBuyOrder, MarketSellOrder, ModifierKindRow,
-    Npc, PeriodicEffect, Player, PlayerMessageEvent, Projectile, ReducerEventContext,
+    ItemInstanceRow, KnownAncientLanguageTable, LootBag, LootBagSlot, MarketBuyOrder,
+    MarketSellOrder, ModifierKindRow, Npc, PeriodicEffect, Player, PlayerMessageEvent,
+    Projectile, ReducerEventContext,
     RemoteReducers, ResourceNode, Session, SpellVisualEffectEvent, StatModifier, Vec3Row,
 };
 
@@ -198,6 +202,10 @@ enum RowEvent {
     AoeRegionRemoved(u64),
     Npc(Npc),
     ResourceNode(ResourceNode),
+    LootBag(LootBag),
+    LootBagRemoved(u64),
+    LootBagSlot(LootBagSlot),
+    LootBagSlotRemoved(LootBagSlot),
     GatherSession(GatherSession),
     GatherSessionRemoved(u64),
     CraftSession(CraftSession),
@@ -399,6 +407,7 @@ pub struct StdbEntityMap {
     /// rather than colliding in the one above.
     projectiles: HashMap<u64, Entity>,
     aoes: HashMap<u64, Entity>,
+    loot_bags: HashMap<u64, Entity>,
 }
 
 impl StdbEntityMap {
@@ -534,6 +543,8 @@ struct ReplicationState<'w> {
     gold: ResMut<'w, LocalGold>,
     markets: ResMut<'w, MarketOrderBook>,
     bids: ResMut<'w, MarketBuyBook>,
+    loot: ResMut<'w, WorldLoot>,
+    open_loot: ResMut<'w, OpenLootBag>,
 }
 
 /// [`AuthState`]/[`AuthFailure`], bundled for the same reason as
@@ -601,6 +612,8 @@ impl Plugin for StdbPlugin {
         app.init_resource::<LocalGold>();
         app.init_resource::<MarketOrderBook>();
         app.init_resource::<MarketBuyBook>();
+        app.init_resource::<WorldLoot>();
+        app.init_resource::<OpenLootBag>();
         app.init_resource::<ShuttingDown>();
         app.insert_resource(StdbConnectionConfig {
             uri: uri.clone(),
@@ -780,6 +793,8 @@ fn connect(
             "SELECT * FROM market",
             "SELECT * FROM market_sell_order",
             "SELECT * FROM market_buy_order",
+            "SELECT * FROM loot_bag",
+            "SELECT * FROM loot_bag_slot",
         ]);
 
     Ok((
@@ -869,6 +884,8 @@ fn register_callbacks(conn: &DbConnection, tx: Sender<RowEvent>) {
     mirror!(craft_session, CraftSession);
     mirror!(market_sell_order, SellOrder);
     mirror!(market_buy_order, BuyOrder);
+    mirror!(loot_bag, LootBag);
+    mirror!(loot_bag_slot, LootBagSlot);
 
     // Deletions matter for anything the client keeps a copy of: a stun that
     // ends, a buff that expires, a projectile that lands. Without these the
@@ -938,6 +955,14 @@ fn register_callbacks(conn: &DbConnection, tx: Sender<RowEvent>) {
     let craft_removed = tx.clone();
     conn.db().craft_session().on_delete(move |_ctx, row| {
         let _ = craft_removed.send(RowEvent::CraftSessionRemoved(row.entity_id));
+    });
+    let loot_removed = tx.clone();
+    conn.db().loot_bag().on_delete(move |_ctx, row| {
+        let _ = loot_removed.send(RowEvent::LootBagRemoved(row.id));
+    });
+    let loot_slot_removed = tx.clone();
+    conn.db().loot_bag_slot().on_delete(move |_ctx, row| {
+        let _ = loot_slot_removed.send(RowEvent::LootBagSlotRemoved(row.clone()));
     });
 }
 
@@ -1131,6 +1156,26 @@ fn drain_events(
                     }
                 }
                 state.pending.npcs.insert(row.entity_id, row);
+            }
+            RowEvent::LootBag(row) => {
+                apply_loot_bag(&mut commands, &mut state.map, &mut state.loot, row);
+            }
+            RowEvent::LootBagRemoved(id) => {
+                if let Some(entity) = state.map.loot_bags.remove(&id) {
+                    commands.entity(entity).despawn();
+                }
+                state.loot.bags.remove(&id);
+                if state.open_loot.0 == Some(id) {
+                    state.open_loot.0 = None;
+                }
+            }
+            RowEvent::LootBagSlot(row) => {
+                apply_loot_slot(&mut state.loot, row);
+            }
+            RowEvent::LootBagSlotRemoved(row) => {
+                if let Some(bag) = state.loot.bags.get_mut(&row.bag_id) {
+                    bag.slots.retain(|(index, _)| *index != row.slot_index);
+                }
             }
             RowEvent::ResourceNode(row) => {
                 if let Some(entity) = state.map.get(row.entity_id) {
@@ -1653,11 +1698,8 @@ pub(crate) fn status_identity_signature(
 }
 
 /// Collects one entity's crowd control into the component the UI queries.
-/// `Root`, `Silence` and `Slow` are dropped rather than approximated: the
-/// domain's `CrowdControlKind` knows only `Stun`, and inventing a mapping here
-/// would put a bar on screen that no gating rule agrees with. Nothing emits
-/// them today, so the branch is a guard against a future module change landing
-/// silently, not a live gap.
+/// Slow rows (schema leftover) are omitted: Slow is a speed modifier, not a
+/// movement/cast gate, and the module no longer materializes it.
 fn crowd_control_state_for(entity_id: u64, pending: &PendingRows) -> CrowdControlState {
     let effects = pending
         .crowd_control
@@ -1847,6 +1889,7 @@ fn apply_aoe_region(commands: &mut Commands, map: &mut StdbEntityMap, row: &AoeR
             super::module_bindings::AoeShapeRow::Circle => None,
         },
         direction: to_vec3(&row.direction),
+        caster: row.caster,
     };
     let position = Position(to_vec3(&row.center));
     match map.aoes.get(&row.id).copied() {
@@ -1990,6 +2033,57 @@ fn equipment_from(slots: &[Option<ItemInstanceRow>]) -> Equipment {
         *equipment.get_mut(*slot) = row.as_ref().map(item_instance_from);
     }
     equipment
+}
+
+fn apply_loot_bag(
+    commands: &mut Commands,
+    map: &mut StdbEntityMap,
+    loot: &mut WorldLoot,
+    row: LootBag,
+) {
+    let position = Vec3::new(row.position.x, row.position.y, row.position.z);
+    let entity = if let Some(entity) = map.loot_bags.get(&row.id).copied() {
+        entity
+    } else {
+        let entity = commands
+            .spawn((
+                LootBagMarker { bag_id: row.id },
+                Position(position),
+                EntityColor(Color::srgb(0.45, 0.32, 0.18)),
+            ))
+            .id();
+        map.loot_bags.insert(row.id, entity);
+        entity
+    };
+    commands.entity(entity).insert(Position(position));
+    let view = loot.bags.entry(row.id).or_insert_with(|| LootBagView {
+        id: row.id,
+        position,
+        gold: row.gold,
+        slots: Vec::new(),
+    });
+    view.position = position;
+    view.gold = row.gold;
+}
+
+fn apply_loot_slot(loot: &mut WorldLoot, row: LootBagSlot) {
+    let instance = item_instance_from(&row.item);
+    let view = loot.bags.entry(row.bag_id).or_insert_with(|| LootBagView {
+        id: row.bag_id,
+        position: Vec3::ZERO,
+        gold: 0,
+        slots: Vec::new(),
+    });
+    if let Some(existing) = view
+        .slots
+        .iter_mut()
+        .find(|(index, _)| *index == row.slot_index)
+    {
+        existing.1 = instance;
+    } else {
+        view.slots.push((row.slot_index, instance));
+        view.slots.sort_by_key(|(index, _)| *index);
+    }
 }
 
 fn item_instance_from(row: &ItemInstanceRow) -> bevymmo_gameplay::items::instance::ItemInstance {
@@ -2426,17 +2520,14 @@ fn predict_and_reconcile(
 
     for (mut position, mut look, authoritative, local, lock, cc) in &mut query {
         let dest = if local.is_some() {
-            if local_frozen {
-                None
-            } else {
-                predicted_move_dest(
-                    pending_move.0,
-                    authoritative.move_target,
-                    lock.map(|lock| lock.0).unwrap_or(MovementLock::None),
-                    right_mouse_held,
-                    cc.is_some_and(|state| state.blocks_movement()),
-                )
-            }
+            predicted_move_dest(
+                pending_move.0,
+                authoritative.move_target,
+                lock.map(|lock| lock.0).unwrap_or(MovementLock::None),
+                right_mouse_held,
+                cc.is_some_and(|state| state.blocks_movement()),
+                local_frozen,
+            )
         } else {
             authoritative.move_target
         };
@@ -2790,6 +2881,7 @@ mod tests {
                 armor: 10.0,
                 movement_speed: 0.15,
                 attack_power: 12.0,
+                threat_generation: 1.0,
                 gathering_speed: 0.0,
                 gathering_bonus: 0.0,
             },
@@ -2902,11 +2994,12 @@ mod tests {
             kind,
             remaining_seconds,
             total_seconds,
+            origin_status_instance_id: id,
         }
     }
 
     #[test]
-    fn crowd_control_projects_stun_and_root() {
+    fn crowd_control_projects_stun_root_and_silence() {
         let mut pending = PendingRows::default();
         pending.crowd_control.insert(
             1,
@@ -2916,10 +3009,14 @@ mod tests {
             2,
             crowd_control_row(2, 7, CrowdControlKindRow::Root, 1.0, 1.0),
         );
+        pending.crowd_control.insert(
+            3,
+            crowd_control_row(3, 7, CrowdControlKindRow::Silence, 0.5, 1.0),
+        );
 
         let state = crowd_control_state_for(7, &pending);
 
-        assert_eq!(state.effects.len(), 2);
+        assert_eq!(state.effects.len(), 3);
         assert!(state
             .effects
             .iter()
@@ -2928,6 +3025,10 @@ mod tests {
             .effects
             .iter()
             .any(|e| e.kind == CrowdControlKind::Root));
+        assert!(state
+            .effects
+            .iter()
+            .any(|e| e.kind == CrowdControlKind::Silence));
         let stun = state
             .effects
             .iter()

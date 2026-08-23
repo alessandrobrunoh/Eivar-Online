@@ -1,60 +1,86 @@
-//! Crowd control: timers, expiry, and the gates the rest of the simulation asks.
+//! Crowd control gates: freeze, interrupt, and the predicates the rest of the
+//! simulation asks.
 //!
-//! Ported from `crates/server/src/crowd_control/systems.rs`, which was three
-//! Bevy systems — `apply_cc_events`, `tick_crowd_control` and
-//! `cancel_active_casts_on_block`. Here they collapse into one [`step`] plus two
-//! entry points other modules call directly ([`apply`], [`has_blocking_cc`]),
-//! because the event/queue indirection Bevy needed to avoid overlapping
-//! `Query` borrows has no reason to exist inside a single transaction.
+//! Status rows own duration. Each `crowd_control` row is a 1:1 child of an
+//! `active_status` instance (`origin_status_instance_id`) whose remaining time
+//! is copied onto the child so clients can draw a bar without joining tables.
+//! [`step`] does **not** tick those timers: it only enforces freeze/interrupt
+//! on rows that still have a living parent, and garbage-collects orphans.
 //!
 //! # Why the domain type is not stored
 //!
-//! `bevymmo_domain::crowd_control::CrowdControlState` is the rulebook and the
-//! rules below follow it exactly (refresh instead of stack; expire at zero;
-//! blocking kinds suppress action). The *type* is not reused because it cannot
-//! represent the schema: `CrowdControlKind` only has `Stun`, while the
-//! `crowd_control` table already carries `Root`, `Silence` and `Slow`. Rather
-//! than store a lossy projection, each row keeps its own kind and the
-//! predicates below extend the domain rule to the three kinds the domain enum
-//! has not caught up with yet. `CrowdControlKind::is_blocking` is still the
-//! authority for `Stun`, so the two cannot silently disagree about it.
+//! `bevymmo_domain::crowd_control::CrowdControlKind` is the rulebook for which
+//! kinds block movement or casting. The *component* `CrowdControlState` is a
+//! client projection (a `Vec` of effects). Rows are not components: an empty
+//! row is a row that still has to be scanned every tick, so "no CC" is simply
+//! "no rows".
 //!
-//! # One row per effect, not one component per entity
-//!
-//! Bevy kept a `CrowdControlState` component with a `Vec` of effects, and left
-//! it attached (empty) after expiry to avoid insert/remove churn. Rows are not
-//! components: an empty row is a row that still has to be scanned every tick, so
-//! expired effects are deleted outright and "no CC" is simply "no rows".
+//! `CrowdControlKindRow` still carries `Slow` for schema compatibility; Slow is
+//! not a movement/cast gate.
 
 use bevymmo_domain::crowd_control::CrowdControlKind;
 use spacetimedb::{ReducerContext, Table};
 
 use crate::tables::{
-    cast_state, crowd_control, game_entity, CrowdControl, CrowdControlKindRow, GameEntity,
+    active_status, cast_state, crowd_control, game_entity, CrowdControl, CrowdControlKindRow,
+    GameEntity,
 };
 
-/// Advances every CC timer, drops what expired, and enforces the two things a
-/// blocking effect must do: stop the victim casting, and stop it walking.
+/// What [`materialize`] should do for a status instance's control child.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum MaterializeAction {
+    /// Remaining hit zero (or never started): drop the child if it exists.
+    Remove,
+    /// Insert or refresh the child with this remaining time.
+    Write { remaining_seconds: f32 },
+}
+
+/// Decides the child-row mutation from the **status** remaining time.
 ///
-/// Runs first in the tick (see `crate::tick`), which is what makes the movement
-/// freeze exact rather than one tick late: `sim::movement::step` reads
-/// `move_target` immediately after this, and `sim::ai::step` only re-issues
-/// destinations at the end of the tick.
-pub fn step(ctx: &ReducerContext, dt: f32) {
-    // Two passes, never one: the loop below reads the table it is about to
-    // write, and a reducer may not mutate a table it is iterating.
-    let mut ticked: Vec<CrowdControl> = Vec::new();
-    let mut expired: Vec<u64> = Vec::new();
+/// The incoming apply duration is not an input: callers pass the remaining
+/// already resolved through [`crate::sim::status`] refresh policy.
+pub(crate) fn plan_materialize_control(remaining_seconds: f32) -> MaterializeAction {
+    if remaining_seconds <= 0.0 {
+        MaterializeAction::Remove
+    } else {
+        MaterializeAction::Write { remaining_seconds }
+    }
+}
+
+/// Whether this child should be deleted because its owning status is gone.
+pub(crate) fn is_orphan_child(parent_exists: bool) -> bool {
+    !parent_exists
+}
+
+/// Whether `child_origin` is the row owned by `removed_status_id`.
+///
+/// Two instances of the same kind keep two rows; only the matching origin is
+/// deleted when one status is cleansed or expires.
+#[cfg(test)]
+pub(crate) fn is_owned_by(child_origin: u64, removed_status_id: u64) -> bool {
+    child_origin == removed_status_id
+}
+
+/// Enforces freeze and cast-interrupt for every living CC row.
+///
+/// Status expiry (`sim::status::step`) already deleted owned children. This
+/// pass is the gate: a stunned entity must not keep walking or casting on the
+/// same tick the status is still active. Orphans (parent status missing) are
+/// deleted so a leak cannot keep a gate closed.
+pub fn step(ctx: &ReducerContext) {
     let mut casting_blocked: Vec<u64> = Vec::new();
     let mut movement_blocked: Vec<u64> = Vec::new();
+    let mut orphans: Vec<u64> = Vec::new();
 
     for effect in ctx.db.crowd_control().iter() {
-        let remaining = effect.remaining_seconds - dt;
-        if remaining <= 0.0 {
-            // An effect that ends on this tick no longer gates anything, which
-            // is also how the Bevy order behaved: `tick_crowd_control` ran
-            // before `cancel_active_casts_on_block`.
-            expired.push(effect.id);
+        let parent_alive = ctx
+            .db
+            .active_status()
+            .id()
+            .find(&effect.origin_status_instance_id)
+            .is_some();
+        if is_orphan_child(parent_alive) {
+            orphans.push(effect.id);
             continue;
         }
         if blocks_casting(effect.kind) {
@@ -63,17 +89,10 @@ pub fn step(ctx: &ReducerContext, dt: f32) {
         if blocks_movement(effect.kind) {
             movement_blocked.push(effect.entity_id);
         }
-        ticked.push(CrowdControl {
-            remaining_seconds: remaining,
-            ..effect
-        });
     }
 
-    for effect in ticked {
-        ctx.db.crowd_control().id().update(effect);
-    }
-    for id in expired {
-        ctx.db.crowd_control().id().delete(id);
+    for id in orphans {
+        ctx.db.crowd_control().id().delete(&id);
     }
 
     // Duplicates are harmless: the second visit finds nothing left to cancel.
@@ -85,57 +104,53 @@ pub fn step(ctx: &ReducerContext, dt: f32) {
     }
 }
 
-/// Applies `kind` to `entity_id` for `duration_seconds`, refreshing instead of
-/// stacking.
+/// Upserts the CC child for `origin_status_instance_id`.
 ///
-/// The entry point every CC source uses — spells, AoE regions, traps. Bevy
-/// funnelled these through `ApplyCrowdControlEvent` and *dropped* the first
-/// event against a target that had no `CrowdControlState` yet, because the
-/// component was inserted through `Commands` and only became visible next
-/// frame. A row insert is visible immediately, so no application is lost here.
-///
-/// Refresh semantics match `CrowdControlState::apply`: the new duration
-/// replaces the old one outright, even when it is shorter. That keeps a chain
-/// of stuns bounded, which was the point of the rule.
-pub fn apply(
+/// `remaining_seconds` / `total_seconds` are the owning status's timer, already
+/// run through refresh policy. Two status instances of the same kind keep two
+/// rows; removing one cannot delete the other.
+pub(crate) fn materialize(
     ctx: &ReducerContext,
     entity_id: u64,
     source: Option<u64>,
     kind: CrowdControlKindRow,
-    duration_seconds: f32,
+    remaining_seconds: f32,
+    total_seconds: f32,
+    origin_status_instance_id: u64,
 ) {
-    if duration_seconds <= 0.0 {
-        return;
-    }
-    let existing = ctx
-        .db
-        .crowd_control()
-        .victim()
-        .filter(entity_id)
-        .find(|effect| effect.kind == kind);
-
-    match existing {
-        Some(effect) => {
-            // A refresh restates the duration, so `total_seconds` moves with it:
-            // the bar the player sees belongs to the stun that is running now,
-            // not to the one it replaced.
-            ctx.db.crowd_control().id().update(CrowdControl {
-                source,
-                remaining_seconds: duration_seconds,
-                total_seconds: duration_seconds,
-                ..effect
-            });
+    match plan_materialize_control(remaining_seconds) {
+        MaterializeAction::Remove => {
+            remove_owned(ctx, origin_status_instance_id);
+            return;
         }
-        None => {
-            ctx.db.crowd_control().insert(CrowdControl {
-                // Zero asks the sequence for an id.
-                id: 0,
-                entity_id,
-                source,
-                kind,
-                remaining_seconds: duration_seconds,
-                total_seconds: duration_seconds,
-            });
+        MaterializeAction::Write { remaining_seconds } => {
+            let existing = ctx
+                .db
+                .crowd_control()
+                .origin_status_instance_id()
+                .find(&origin_status_instance_id);
+            match existing {
+                Some(effect) => {
+                    ctx.db.crowd_control().id().update(CrowdControl {
+                        source,
+                        kind,
+                        remaining_seconds,
+                        total_seconds,
+                        ..effect
+                    });
+                }
+                None => {
+                    ctx.db.crowd_control().insert(CrowdControl {
+                        id: 0,
+                        entity_id,
+                        source,
+                        kind,
+                        remaining_seconds,
+                        total_seconds,
+                        origin_status_instance_id,
+                    });
+                }
+            }
         }
     }
 
@@ -145,6 +160,46 @@ pub fn apply(
     if blocks_movement(kind) {
         freeze(ctx, entity_id);
     }
+}
+
+/// Copies the owning status timer onto the child, if the child exists.
+pub(crate) fn sync_timer(
+    ctx: &ReducerContext,
+    origin_status_instance_id: u64,
+    remaining_seconds: f32,
+    total_seconds: f32,
+) {
+    let Some(effect) = ctx
+        .db
+        .crowd_control()
+        .origin_status_instance_id()
+        .find(&origin_status_instance_id)
+    else {
+        return;
+    };
+    if (effect.remaining_seconds - remaining_seconds).abs() < f32::EPSILON
+        && (effect.total_seconds - total_seconds).abs() < f32::EPSILON
+    {
+        return;
+    }
+    ctx.db.crowd_control().id().update(CrowdControl {
+        remaining_seconds,
+        total_seconds,
+        ..effect
+    });
+}
+
+/// Deletes the CC row owned by `origin_status_instance_id`, if any.
+pub(crate) fn remove_owned(ctx: &ReducerContext, origin_status_instance_id: u64) {
+    let Some(row) = ctx
+        .db
+        .crowd_control()
+        .origin_status_instance_id()
+        .find(&origin_status_instance_id)
+    else {
+        return;
+    };
+    ctx.db.crowd_control().id().delete(&row.id);
 }
 
 /// Whether `entity_id` is under an effect that suppresses *all* action.
@@ -217,38 +272,78 @@ fn freeze(ctx: &ReducerContext, entity_id: u64) {
     });
 }
 
-/// Whether this kind suppresses every action, movement and casting alike.
-///
-/// `Stun` defers to `CrowdControlKind::is_blocking` so the module and the
-/// domain cannot drift on the one kind they both know about.
+/// Maps a replicated row kind onto the domain rulebook. `Slow` is not a gate.
+fn domain_kind(kind: CrowdControlKindRow) -> Option<CrowdControlKind> {
+    match kind {
+        CrowdControlKindRow::Stun => Some(CrowdControlKind::Stun),
+        CrowdControlKindRow::Root => Some(CrowdControlKind::Root),
+        CrowdControlKindRow::Silence => Some(CrowdControlKind::Silence),
+        CrowdControlKindRow::Slow => None,
+    }
+}
+
 fn blocks_all_actions(kind: CrowdControlKindRow) -> bool {
-    match kind {
-        CrowdControlKindRow::Stun => CrowdControlKind::Stun.is_blocking(),
-        // Root, Silence and Slow each suppress one axis at most.
-        CrowdControlKindRow::Root | CrowdControlKindRow::Silence | CrowdControlKindRow::Slow => {
-            false
-        }
-    }
+    domain_kind(kind).is_some_and(CrowdControlKind::is_blocking)
 }
 
-/// Whether this kind stops the victim casting.
 fn blocks_casting(kind: CrowdControlKindRow) -> bool {
-    match kind {
-        CrowdControlKindRow::Stun => blocks_all_actions(kind),
-        CrowdControlKindRow::Silence => true,
-        CrowdControlKindRow::Root | CrowdControlKindRow::Slow => false,
-    }
+    domain_kind(kind).is_some_and(CrowdControlKind::blocks_casting)
 }
 
-/// Whether this kind stops the victim moving.
-///
-/// `Slow` is deliberately absent: the domain's own note says a slow belongs in
-/// the stat pipeline as a `movement_speed` modifier, not in the CC gate. It
-/// stays in the table so the UI can show it and so immunity rules can see it.
 fn blocks_movement(kind: CrowdControlKindRow) -> bool {
-    match kind {
-        CrowdControlKindRow::Stun => blocks_all_actions(kind),
-        CrowdControlKindRow::Root => true,
-        CrowdControlKindRow::Silence | CrowdControlKindRow::Slow => false,
+    domain_kind(kind).is_some_and(CrowdControlKind::blocks_movement)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_remaining_removes_the_child_instead_of_writing() {
+        assert_eq!(plan_materialize_control(0.0), MaterializeAction::Remove);
+        assert_eq!(plan_materialize_control(-0.1), MaterializeAction::Remove);
+    }
+
+    #[test]
+    fn positive_remaining_writes_the_status_timer() {
+        assert_eq!(
+            plan_materialize_control(3.0),
+            MaterializeAction::Write {
+                remaining_seconds: 3.0
+            }
+        );
+    }
+
+    #[test]
+    fn missing_parent_is_an_orphan() {
+        assert!(is_orphan_child(false));
+        assert!(!is_orphan_child(true));
+    }
+
+    #[test]
+    fn removing_one_stun_instance_does_not_claim_the_other() {
+        let first = 11_u64;
+        let second = 17_u64;
+        assert!(is_owned_by(first, first));
+        assert!(!is_owned_by(second, first));
+        assert!(is_owned_by(second, second));
+    }
+
+    #[test]
+    fn slow_row_is_not_a_movement_or_cast_gate() {
+        assert!(!blocks_movement(CrowdControlKindRow::Slow));
+        assert!(!blocks_casting(CrowdControlKindRow::Slow));
+        assert!(!blocks_all_actions(CrowdControlKindRow::Slow));
+        assert_eq!(domain_kind(CrowdControlKindRow::Slow), None);
+    }
+
+    #[test]
+    fn domain_predicates_match_row_predicates() {
+        assert!(blocks_movement(CrowdControlKindRow::Stun));
+        assert!(blocks_casting(CrowdControlKindRow::Stun));
+        assert!(blocks_movement(CrowdControlKindRow::Root));
+        assert!(!blocks_casting(CrowdControlKindRow::Root));
+        assert!(blocks_casting(CrowdControlKindRow::Silence));
+        assert!(!blocks_movement(CrowdControlKindRow::Silence));
     }
 }

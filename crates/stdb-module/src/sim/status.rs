@@ -10,8 +10,8 @@ use bevymmo_domain::effects::{
 use spacetimedb::{ReducerContext, Table};
 
 use crate::tables::{
-    active_status, crowd_control, periodic_effect, stat_modifier, ActiveStatus,
-    CrowdControlKindRow, ModifierKindRow, PeriodicEffect, StatModifier,
+    active_status, periodic_effect, stat_modifier, ActiveStatus, CrowdControlKindRow,
+    ModifierKindRow, PeriodicEffect, StatModifier,
 };
 
 fn registry() -> &'static StatusRegistry {
@@ -20,7 +20,7 @@ fn registry() -> &'static StatusRegistry {
 }
 
 /// Applies a status definition and materializes its currently supported control
-/// payload into the legacy CC table.
+/// payload into the CC child table.
 pub fn apply(
     ctx: &ReducerContext,
     target: u64,
@@ -53,7 +53,7 @@ pub fn apply(
 
     let control_kind = definition.control.map(control_kind);
     let mut stacks = 1_u16;
-    let active_status_id = match existing {
+    let (active_status_id, remaining, total) = match existing {
         Some(row) => {
             let active_status_id = row.id;
             let (new_stacks, added_stack) = match definition.stacking {
@@ -82,7 +82,7 @@ pub fn apply(
                 ..row
             });
             stacks = new_stacks;
-            active_status_id
+            (active_status_id, remaining, total)
         }
         None => {
             let inserted = ctx.db.active_status().insert(ActiveStatus {
@@ -96,7 +96,7 @@ pub fn apply(
                 total_seconds: duration,
                 control_kind,
             });
-            inserted.id
+            (inserted.id, duration, duration)
         }
     };
 
@@ -106,7 +106,7 @@ pub fn apply(
         target,
         source,
         active_status_id,
-        duration,
+        remaining,
         stacks,
     );
     materialize_modifiers(
@@ -116,11 +116,19 @@ pub fn apply(
         source,
         active_status_id,
         definition.category,
-        duration,
+        remaining,
     );
 
-    if let Some(kind) = control_kind {
-        crate::sim::crowd_control::apply(ctx, target, source, kind, duration);
+    if let Some(kind) = operational_control_kind(control_kind) {
+        crate::sim::crowd_control::materialize(
+            ctx,
+            target,
+            source,
+            kind,
+            remaining,
+            total,
+            active_status_id,
+        );
     }
 }
 
@@ -192,28 +200,30 @@ fn remove_matching(
     }
 }
 
-fn remove_status_instance(ctx: &ReducerContext, status: ActiveStatus) {
+pub(crate) fn remove_status_instance(ctx: &ReducerContext, status: ActiveStatus) {
     ctx.db.active_status().id().delete(&status.id);
     remove_owned_periodics(ctx, status.id);
     remove_owned_modifiers(ctx, status.id);
     crate::sim::combat::recalculate_effective_stats(ctx, status.entity_id);
-    if let Some(kind) = status.control_kind {
-        remove_control(ctx, status.entity_id, status.source, kind);
-    }
+    crate::sim::crowd_control::remove_owned(ctx, status.id);
 }
 
-/// Expires semantic status rows and removes the currently materialized control
-/// rows they own. Status-owned periodic schedules are removed before the
-/// semantic row disappears.
+/// Expires semantic status rows and copies remaining time onto owned control
+/// children. Status-owned periodic schedules are removed before the semantic
+/// row disappears.
 pub fn step(ctx: &ReducerContext, dt: f32) {
     let mut updated = Vec::new();
     let mut expired = Vec::new();
+    let mut control_sync = Vec::new();
 
     for status in ctx.db.active_status().iter() {
         let remaining = status.remaining_seconds - dt;
         if remaining <= 0.0 {
             expired.push(status);
         } else {
+            if operational_control_kind(status.control_kind).is_some() {
+                control_sync.push((status.id, remaining, status.total_seconds));
+            }
             updated.push(ActiveStatus {
                 remaining_seconds: remaining,
                 ..status
@@ -223,6 +233,9 @@ pub fn step(ctx: &ReducerContext, dt: f32) {
 
     for status in updated {
         ctx.db.active_status().id().update(status);
+    }
+    for (origin, remaining, total) in control_sync {
+        crate::sim::crowd_control::sync_timer(ctx, origin, remaining, total);
     }
     for status in expired {
         remove_status_instance(ctx, status);
@@ -353,30 +366,23 @@ fn remove_owned_modifiers(ctx: &ReducerContext, status_instance_id: u64) {
     }
 }
 
-fn remove_control(
-    ctx: &ReducerContext,
-    entity_id: u64,
-    source: Option<u64>,
-    kind: CrowdControlKindRow,
-) {
-    let Some(row) = ctx
-        .db
-        .crowd_control()
-        .victim()
-        .filter(&entity_id)
-        .find(|row| row.source == source && row.kind == kind)
-    else {
-        return;
-    };
-    ctx.db.crowd_control().id().delete(&row.id);
-}
-
 fn control_kind(control: bevymmo_domain::effects::ControlSpec) -> CrowdControlKindRow {
     match control {
-        bevymmo_domain::effects::ControlSpec::Stun => CrowdControlKindRow::Stun,
-        bevymmo_domain::effects::ControlSpec::Root => CrowdControlKindRow::Root,
-        bevymmo_domain::effects::ControlSpec::Silence => CrowdControlKindRow::Silence,
-        bevymmo_domain::effects::ControlSpec::Slow => CrowdControlKindRow::Slow,
+        bevymmo_domain::crowd_control::CrowdControlKind::Stun => CrowdControlKindRow::Stun,
+        bevymmo_domain::crowd_control::CrowdControlKind::Root => CrowdControlKindRow::Root,
+        bevymmo_domain::crowd_control::CrowdControlKind::Silence => CrowdControlKindRow::Silence,
+    }
+}
+
+/// Hard-control kinds that own a `crowd_control` child. Slow is a speed
+/// modifier only; materializing it as CC would open a gate that does nothing
+/// and a row the client already drops.
+pub(crate) fn operational_control_kind(
+    kind: Option<CrowdControlKindRow>,
+) -> Option<CrowdControlKindRow> {
+    match kind {
+        Some(CrowdControlKindRow::Slow) | None => None,
+        some @ Some(_) => some,
     }
 }
 
@@ -465,5 +471,69 @@ mod tests {
             compute_refreshed_duration(0.1, 5.0, 5.0, RefreshPolicy::Extend, false);
         assert!((remaining - 5.1).abs() < 1e-6);
         assert!((total - 5.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn refresh_none_control_child_keeps_status_remaining_not_incoming() {
+        let incoming = 8.0;
+        let (remaining, total) =
+            compute_refreshed_duration(3.0, 5.0, incoming, RefreshPolicy::None, false);
+        assert_eq!(remaining, 3.0);
+        assert_eq!(total, 5.0);
+        assert_ne!(remaining, incoming);
+        assert_eq!(
+            crate::sim::crowd_control::plan_materialize_control(remaining),
+            crate::sim::crowd_control::MaterializeAction::Write {
+                remaining_seconds: 3.0
+            }
+        );
+    }
+
+    #[test]
+    fn refresh_extend_control_child_uses_extended_remaining() {
+        let (remaining, total) =
+            compute_refreshed_duration(3.0, 5.0, 5.0, RefreshPolicy::Extend, false);
+        assert_eq!(
+            crate::sim::crowd_control::plan_materialize_control(remaining),
+            crate::sim::crowd_control::MaterializeAction::Write {
+                remaining_seconds: 8.0
+            }
+        );
+        assert_eq!(total, 8.0);
+    }
+
+    #[test]
+    fn refresh_all_control_child_resets_to_incoming() {
+        let incoming = 8.0;
+        let (remaining, total) =
+            compute_refreshed_duration(1.0, 5.0, incoming, RefreshPolicy::RefreshAll, false);
+        assert_eq!(
+            crate::sim::crowd_control::plan_materialize_control(remaining),
+            crate::sim::crowd_control::MaterializeAction::Write {
+                remaining_seconds: incoming
+            }
+        );
+        assert_eq!(total, incoming);
+    }
+
+    #[test]
+    fn slow_does_not_materialize_a_crowd_control_child() {
+        assert_eq!(
+            operational_control_kind(Some(CrowdControlKindRow::Slow)),
+            None
+        );
+        assert_eq!(
+            operational_control_kind(Some(CrowdControlKindRow::Stun)),
+            Some(CrowdControlKindRow::Stun)
+        );
+        assert_eq!(
+            operational_control_kind(Some(CrowdControlKindRow::Root)),
+            Some(CrowdControlKindRow::Root)
+        );
+        assert_eq!(
+            operational_control_kind(Some(CrowdControlKindRow::Silence)),
+            Some(CrowdControlKindRow::Silence)
+        );
+        assert_eq!(operational_control_kind(None), None);
     }
 }

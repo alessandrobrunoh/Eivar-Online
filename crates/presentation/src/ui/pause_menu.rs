@@ -1,4 +1,4 @@
-//! Pause overlay: Resume and Return to Main Menu.
+//! Pause overlay: Resume, Settings, and Return to Main Menu.
 //!
 //! Pure UI overlay: does not mutate `Time`, `FixedUpdate`, or network. Pause
 //! is a [`PauseOverlay`] sub-state of InGame, managed by
@@ -8,6 +8,7 @@ use bevy::prelude::*;
 
 use crate::game_state::{PauseOverlay, Screen};
 use crate::ui::button::{spawn_button, UiButtonAction};
+use crate::ui::settings::SettingsSession;
 use crate::ui::text::spawn_text;
 use crate::ui::theme::UiTheme;
 
@@ -22,8 +23,11 @@ impl Plugin for PauseMenuPlugin {
         app.add_systems(Startup, setup_pause_menu);
         app.add_systems(
             Update,
-            update_pause_menu_visibility
-                .run_if(state_changed::<Screen>.or_eager(state_changed::<PauseOverlay>)),
+            update_pause_menu_visibility.run_if(
+                state_changed::<Screen>
+                    .or_eager(state_changed::<PauseOverlay>)
+                    .or_eager(resource_changed::<SettingsSession>),
+            ),
         );
     }
 }
@@ -74,6 +78,14 @@ fn setup_pause_menu(mut commands: Commands, theme: Res<UiTheme>, asset_server: R
     spawn_button(
         &mut commands,
         panel,
+        "Settings",
+        UiButtonAction::OpenSettings,
+        &theme,
+        &asset_server,
+    );
+    spawn_button(
+        &mut commands,
+        panel,
         "Leave Character",
         UiButtonAction::Logout,
         &theme,
@@ -91,9 +103,11 @@ fn setup_pause_menu(mut commands: Commands, theme: Res<UiTheme>, asset_server: R
 
 fn update_pause_menu_visibility(
     pause: Option<Res<State<PauseOverlay>>>,
+    settings: Option<Res<SettingsSession>>,
     mut query: Query<&mut Node, With<PauseMenuUi>>,
 ) {
-    let display = if pause.is_some_and(|pause| *pause.get() == PauseOverlay::On) {
+    let settings_open = settings.is_some_and(|session| session.open);
+    let display = if pause.is_some_and(|pause| *pause.get() == PauseOverlay::On) && !settings_open {
         Display::Flex
     } else {
         Display::None

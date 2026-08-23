@@ -134,6 +134,21 @@ pub fn menu_screen_root_node() -> Node {
     }
 }
 
+/// Wide ornate frame used by the settings overlay. Login stays narrow;
+/// settings needs a sidebar plus a 520 px content column.
+pub fn ornate_settings_panel_node() -> Node {
+    Node {
+        width: Val::Percent(78.0),
+        min_width: Val::Px(700.0),
+        max_width: Val::Px(1040.0),
+        height: Val::Percent(82.0),
+        min_height: Val::Px(500.0),
+        max_height: Val::Px(820.0),
+        position_type: PositionType::Relative,
+        ..default()
+    }
+}
+
 /// Viewport-relative ornate panel. `min_width` 320 (not 380) so 36% of
 /// 800px is not forced to almost half the window.
 pub fn ornate_menu_panel_node() -> Node {
@@ -170,9 +185,27 @@ pub fn spawn_ornate_menu_panel(
     parent: Entity,
     asset_server: &AssetServer,
 ) -> Entity {
+    spawn_ornate_panel(commands, parent, asset_server, ornate_menu_panel_node())
+}
+
+/// Spawns the wide 9-sliced frame used by settings.
+pub fn spawn_ornate_settings_panel(
+    commands: &mut Commands,
+    parent: Entity,
+    asset_server: &AssetServer,
+) -> Entity {
+    spawn_ornate_panel(commands, parent, asset_server, ornate_settings_panel_node())
+}
+
+fn spawn_ornate_panel(
+    commands: &mut Commands,
+    parent: Entity,
+    asset_server: &AssetServer,
+    node: Node,
+) -> Entity {
     let panel = commands
         .spawn((
-            ornate_menu_panel_node(),
+            node,
             ornate_panel_image(asset_server.load(ORNATE_MENU_PANEL_PATH)),
         ))
         .id();

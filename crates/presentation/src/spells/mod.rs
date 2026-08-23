@@ -57,6 +57,7 @@ impl Plugin for SpellsHudPlugin {
                 aim_preview::draw_ability_aim_preview.after(input::cast_abilities_on_key),
                 dispatch_visual_effects,
                 aoe_zones::spawn_aoe_meshes,
+                aoe_zones::apply_aoe_preview_visibility.after(aoe_zones::spawn_aoe_meshes),
                 aoe_zones::pulse_aoe_meshes,
                 ability_vfx::animate_lifecycle,
                 eidolon_effects::animate,

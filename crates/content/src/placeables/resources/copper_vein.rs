@@ -17,6 +17,7 @@ use crate::placeables::resource;
     regen_interval_seconds = 60.0,
     regen_amount = 2,
     interact_range = 2.5,
+    bonus_tools = [Hammer],
 )]
 pub struct CopperVeinResource;
 
@@ -33,6 +34,10 @@ mod tests {
         assert_eq!(config.max_pieces, 8);
         assert_eq!(config.yield_item.as_str(), "copper");
         assert_eq!(config.yield_amount, 1);
+        assert_eq!(
+            config.bonus_tools,
+            vec![crate::items::GatheringToolKind::Hammer]
+        );
         let mut registry = PlaceableRegistry::default();
         register(&mut registry);
         assert!(registry.resources.contains_key(&def.id()));

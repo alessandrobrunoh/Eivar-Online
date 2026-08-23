@@ -71,7 +71,7 @@ mod tests {
             animation: "attack",
             impact_vfx: "impact",
             impact_delay: 0.3,
-            stun_seconds: 0.0,
+            control: None,
             payload: crate::abilities::ManifestationPayload::default(),
         };
 

@@ -48,6 +48,7 @@ pub enum CardKind {
     ItemDetail,
     CharacterSheet,
     Settings,
+    Loot,
     Generic,
 }
 

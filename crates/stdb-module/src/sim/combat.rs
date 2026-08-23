@@ -42,10 +42,11 @@ use spacetimedb::{ReducerContext, Table, Uuid};
 
 use crate::rows::{equipment_from_rows, StatsRow, EQUIP_SLOTS};
 use crate::tables::{
-    boss_state, crowd_control, damage_event, entity_stats, equipment, game_entity, party_member,
-    periodic_effect, player_stats, stat_modifier, BossPhaseRow, BossState, DamageEventRow,
-    EntityKindRow, EntityStateRow, EntityStats, GameEntity, ModifierKindRow, PeriodicEffect,
-    StatModifier,
+    active_status, boss_state, crowd_control, damage_event, enemy_ai, entity_stats, equipment,
+    game_entity, party_member, periodic_effect, player_stats, stat_modifier, BossPhaseRow,
+    BossState,
+    DamageEventRow, EntityKindRow, EntityStateRow, EntityStats, GameEntity, ModifierKindRow,
+    PeriodicEffect, StatModifier,
 };
 
 static NON_PLAYER_BASE_STATS: Mutex<Option<HashMap<u64, StatsRow>>> = Mutex::new(None);
@@ -697,6 +698,7 @@ pub fn apply_modifier(
 pub fn resurrect(ctx: &ReducerContext, entity: GameEntity) {
     let entity_id = entity.entity_id;
 
+    clear_statuses(ctx, entity_id);
     clear_modifiers(ctx, entity_id);
     clear_crowd_control(ctx, entity_id);
     clear_periodic_effects(ctx, entity_id);
@@ -730,10 +732,25 @@ pub fn resurrect(ctx: &ReducerContext, entity: GameEntity) {
     });
 }
 
-/// Drops every stun, root, silence and slow on an entity.
+/// Drops every semantic status on an entity, including owned CC / modifier /
+/// periodic children. Respawning out of a stun is the point: the card and the
+/// gate that killed the character should not still be running when it stands
+/// back up.
+fn clear_statuses(ctx: &ReducerContext, entity_id: u64) {
+    let statuses: Vec<_> = ctx
+        .db
+        .active_status()
+        .on_entity()
+        .filter(&entity_id)
+        .collect();
+    for status in statuses {
+        crate::sim::status::remove_status_instance(ctx, status);
+    }
+}
+
+/// Drops leftover crowd-control rows that are not owned by a status (orphans).
 ///
-/// Respawning out of a stun is the point: the crowd control that killed the
-/// character should not still be running when it stands back up.
+/// Status-owned children are already removed by [`clear_statuses`].
 fn clear_crowd_control(ctx: &ReducerContext, entity_id: u64) {
     // Collected first: deleting while the index iterator is live is not safe.
     let ids: Vec<u64> = ctx
@@ -942,6 +959,12 @@ fn apply_equipment_bonuses(ctx: &ReducerContext, character_id: Uuid, stats: &mut
                 continue;
             }
             if let ItemEffect::StatBonus { field, op, value } = effect {
+                // GatheringSpeed / GatheringBonus are resource-scoped: a node's
+                // `bonus_tools` decides when they apply. Folding them here
+                // would speed every gather, including the wrong resource.
+                if matches!(field, StatField::GatheringSpeed | StatField::GatheringBonus) {
+                    continue;
+                }
                 apply_stat_op(stats, *field, *op, *value);
             }
         }
@@ -1047,26 +1070,59 @@ fn stat_field_name(field: StatField) -> &'static str {
 /// Clearing `move_target` matters even though the movement step already skips
 /// the dead: without it a corpse that respawns mid-walk would resume the walk
 /// it was on when it died.
-fn respawn_delay(kind: EntityKindRow) -> Option<f32> {
+fn kind_respawn_fallback(kind: EntityKindRow) -> Option<f32> {
     match kind {
-        EntityKindRow::Player => None,
+        EntityKindRow::Player | EntityKindRow::Npc | EntityKindRow::ResourceNode => None,
         EntityKindRow::Dummy | EntityKindRow::AllyDummy => Some(DUMMY_RESPAWN_SECONDS),
-        _ => Some(ENEMY_RESPAWN_SECONDS),
+        EntityKindRow::Enemy | EntityKindRow::Boss => Some(ENEMY_RESPAWN_SECONDS),
+    }
+}
+
+fn catalog_respawn_seconds(ctx: &ReducerContext, entity: &GameEntity) -> Option<f32> {
+    let kind_id = match entity.kind {
+        EntityKindRow::Enemy => {
+            ctx.db
+                .enemy_ai()
+                .entity_id()
+                .find(&entity.entity_id)?
+                .kind_id
+        }
+        EntityKindRow::Boss => {
+            ctx.db
+                .boss_state()
+                .entity_id()
+                .find(&entity.entity_id)?
+                .kind_id
+        }
+        _ => return None,
+    };
+    crate::world::respawn_seconds_for(&kind_id)
+}
+
+fn respawn_delay(ctx: &ReducerContext, entity: &GameEntity) -> Option<f32> {
+    match entity.kind {
+        EntityKindRow::Enemy | EntityKindRow::Boss => {
+            catalog_respawn_seconds(ctx, entity).or_else(|| kind_respawn_fallback(entity.kind))
+        }
+        other => kind_respawn_fallback(other),
     }
 }
 
 fn kill(ctx: &ReducerContext, entity: GameEntity) {
-    // A player waits for the respawn reducer; everything else comes back on a
-    // timer. Without this the world empties permanently after one sweep of the
-    // map, which is what the Bevy server's despawn-and-respawn scheduling
-    // avoided and the port initially lost.
-    let respawn_in_seconds = respawn_delay(entity.kind);
+    // A player waits for the respawn reducer; catalog creatures come back on
+    // the delay authored in `#[enemy(respawn = ...)]`. Without a timer the
+    // world empties permanently after one sweep of the map.
+    let respawn_in_seconds = respawn_delay(ctx, &entity);
+    let entity_id = entity.entity_id;
     ctx.db.game_entity().entity_id().update(GameEntity {
         state: EntityStateRow::Dead,
         move_target: None,
         respawn_in_seconds,
         ..entity
     });
+    if let Some(corpse) = ctx.db.game_entity().entity_id().find(&entity_id) {
+        crate::sim::loot::on_death(ctx, &corpse);
+    }
 }
 
 /// Whether the entity is currently a corpse.
@@ -1220,9 +1276,11 @@ mod tests {
 
     #[test]
     fn a_dummy_comes_back_after_ten_seconds() {
-        assert_eq!(respawn_delay(EntityKindRow::Dummy), Some(10.0));
-        assert_eq!(respawn_delay(EntityKindRow::AllyDummy), Some(10.0));
-        assert_eq!(respawn_delay(EntityKindRow::Player), None);
+        assert_eq!(kind_respawn_fallback(EntityKindRow::Dummy), Some(10.0));
+        assert_eq!(kind_respawn_fallback(EntityKindRow::AllyDummy), Some(10.0));
+        assert_eq!(kind_respawn_fallback(EntityKindRow::Player), None);
+        assert_eq!(kind_respawn_fallback(EntityKindRow::Npc), None);
+        assert_eq!(kind_respawn_fallback(EntityKindRow::ResourceNode), None);
     }
 
     #[test]
