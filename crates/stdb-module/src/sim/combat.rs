@@ -133,7 +133,7 @@ fn tick_periodic_effects(ctx: &ReducerContext, dt: f32) {
         if amount >= 0.0 {
             apply_healing(ctx, entity_id, amount);
         } else {
-            apply_damage(ctx, entity_id, source, -amount);
+            apply_damage(ctx, entity_id, source, -amount, None);
         }
     }
 }
@@ -334,6 +334,7 @@ fn reap_the_dead(ctx: &ReducerContext) {
 
     for entity in newly_dead {
         let entity_id = entity.entity_id;
+        let is_player = entity.owner_character_id.is_some();
         kill(ctx, entity);
         // Zero amount: the health was already gone, this event exists only so
         // the client's floating combat text agrees that something died.
@@ -343,6 +344,7 @@ fn reap_the_dead(ctx: &ReducerContext) {
             is_healing: false,
             killed: true,
         });
+        crate::sim::event_log::record_death(ctx, entity_id, None, is_player);
     }
 }
 
@@ -370,7 +372,13 @@ fn reap_the_dead(ctx: &ReducerContext) {
 /// accrued here rather than at each call site, so nothing can deal damage and
 /// forget to be hated for it. `None` covers damage with no author — a falling
 /// rock, a decaying debuff — which earns no threat.
-pub fn apply_damage(ctx: &ReducerContext, target: u64, source: Option<u64>, amount: f32) {
+pub fn apply_damage(
+    ctx: &ReducerContext,
+    target: u64,
+    source: Option<u64>,
+    amount: f32,
+    ability_id: Option<String>,
+) {
     let Some(row) = ctx.db.entity_stats().entity_id().find(&target) else {
         return;
     };
@@ -404,6 +412,7 @@ pub fn apply_damage(ctx: &ReducerContext, target: u64, source: Option<u64>, amou
     let effective = damage_after_armor(amount, &bundle.combat);
     let current_health = (row.stats.current_health - effective).max(0.0);
     let killed = current_health <= 0.0;
+    let is_player = entity.owner_character_id.is_some();
     let interrupt_gather =
         entity.kind == EntityKindRow::Player && entity.owner_character_id.is_some();
 
@@ -434,6 +443,10 @@ pub fn apply_damage(ctx: &ReducerContext, target: u64, source: Option<u64>, amou
         is_healing: false,
         killed,
     });
+    crate::sim::event_log::record_damage(ctx, source, target, effective, ability_id, killed);
+    if killed {
+        crate::sim::event_log::record_death(ctx, target, source, is_player);
+    }
 }
 
 /// Whether a hostile payload from `source` must be dropped for `target`.

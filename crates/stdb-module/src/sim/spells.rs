@@ -320,6 +320,9 @@ pub fn start_cooldown(ctx: &ReducerContext, entity_id: u64, ability_id: &str, du
 /// Ends whatever `entity_id` is casting, telling subscribers how it ended.
 pub fn end_cast(ctx: &ReducerContext, entity_id: u64, spell_id: String, interrupted: bool) {
     ctx.db.cast_state().entity_id().delete(&entity_id);
+    if !interrupted {
+        crate::sim::event_log::record_cast(ctx, entity_id, spell_id.clone());
+    }
     ctx.db.cast_ended().insert(CastEndedEvent {
         entity_id,
         spell_id,

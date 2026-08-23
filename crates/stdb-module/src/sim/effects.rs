@@ -33,7 +33,13 @@ pub fn resolve_effect(ctx: &ReducerContext, effect: QueuedEffect) -> EffectOutco
 
     match effect.spec {
         EffectSpec::Damage(damage) => {
-            crate::sim::combat::apply_damage(ctx, target, source, damage.amount);
+            crate::sim::combat::apply_damage(
+                ctx,
+                target,
+                source,
+                damage.amount,
+                effect.context.ability_id.map(|id| id.as_str().to_string()),
+            );
             EffectOutcome::Applied
         }
         EffectSpec::Heal(heal) => {

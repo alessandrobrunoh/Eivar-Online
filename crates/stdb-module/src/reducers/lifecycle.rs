@@ -6,13 +6,13 @@ use std::time::Duration;
 use crate::reducers::account::caller_session;
 use crate::rows::{equipment_to_rows, inventory_to_rows, HotbarRow, StatsRow, Vec3Row};
 use crate::tables::{
-    active_status, aoe_region, boss_state, cast_state, character_wallet, cooldown, crowd_control,
-    craft_session, enemy_ai, entity_stats, equipment, game_entity, gather_session, grid_cell,
-    hotbar, inventory,
-    known_ancient_language, npc, periodic_effect, player, player_stats, projectile, resonance,
-    session, stat_modifier, threat, tick_schedule, tick_stats, CharacterWallet, ColorRow,
-    EntityKindRow, EntityStateRow, EquipmentTable, GameEntity, Hotbar, InventoryTable,
-    KnownAncientLanguageTable, Player, PlayerStats, Session, TickSchedule,
+    active_status, aoe_region, boss_state, cast_state, character_wallet, cooldown, craft_session,
+    crowd_control, domain_event_cleanup_schedule, domain_event_config, enemy_ai, entity_stats,
+    equipment, game_entity, gather_session, grid_cell, hotbar, inventory, known_ancient_language,
+    npc, periodic_effect, player, player_stats, projectile, resonance, session, stat_modifier,
+    threat, tick_schedule, tick_stats, CharacterWallet, ColorRow, EntityKindRow, EntityStateRow,
+    EquipmentTable, GameEntity, Hotbar, InventoryTable, KnownAncientLanguageTable, Player,
+    PlayerStats, Session, TickSchedule,
 };
 use crate::{
     normalize_name, world, DEFAULT_SPEED_PER_SECOND, MAX_CHARACTERS_PER_ACCOUNT, TICK_INTERVAL_MS,
@@ -27,6 +27,20 @@ pub fn init(ctx: &ReducerContext) {
         scheduled_id: 0,
         scheduled_at: ScheduleAt::Interval(Duration::from_millis(TICK_INTERVAL_MS).into()),
     });
+    ctx.db
+        .domain_event_config()
+        .insert(crate::tables::DomainEventConfig {
+            id: 0,
+            enabled: true,
+            damage_threshold: crate::sim::event_log::DEFAULT_DAMAGE_THRESHOLD,
+            retention_seconds: crate::sim::event_log::DEFAULT_RETENTION_SECONDS,
+        });
+    ctx.db
+        .domain_event_cleanup_schedule()
+        .insert(crate::tables::DomainEventCleanupSchedule {
+            scheduled_id: 0,
+            scheduled_at: crate::sim::event_log::schedule(),
+        });
 
     crate::reducers::market::seed_markets(ctx);
     world::seed(ctx);
