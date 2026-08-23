@@ -9,6 +9,7 @@
 use crate::abilities::{AbilityId, KitInscription};
 use crate::entity::enemy::aggro::{AcquirePolicy, AggroOrigin, ThreatPolicy};
 use crate::entity::enemy::kit::AbilityUse;
+use crate::loot::LootTable;
 use crate::stats::components::StatsBundleData;
 
 /// Normal trash vs a named encounter that owns an arena.
@@ -100,6 +101,11 @@ pub struct EnemyConfig {
     pub arena_radius: Option<f32>,
     pub enrage_after_seconds: Option<f32>,
     pub phases: Vec<BossPhaseDef>,
+    /// Seconds a corpse stays down before `tick_respawns` stands it back up.
+    /// Authored per archetype in `#[enemy(respawn = ...)]`.
+    pub respawn_seconds: f32,
+    /// Gold range and item chances. `None` means this archetype drops nothing.
+    pub loot: Option<LootTable>,
 }
 
 /// Configuration returned by [`super::definition::BossPlaceable::boss_config`].

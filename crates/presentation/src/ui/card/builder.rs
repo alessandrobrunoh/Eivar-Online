@@ -81,6 +81,9 @@ const INNER_PADDING: f32 = 14.0;
 /// corners occupy ~80 px; anything smaller draws slots on top of them.
 pub const FRAME_INNER_PADDING: f32 = 64.0;
 const HEADER_BOTTOM_GAP: f32 = 12.0;
+/// Breathing room and hairline rule the footer draws above its own widgets.
+const FOOTER_PADDING_TOP: f32 = 8.0;
+const FOOTER_RULE: f32 = 1.0;
 /// Gap between a `CardPositioning::Right` card and the right edge of the viewport.
 const RIGHT_EDGE_GAP: f32 = 24.0;
 /// Gap between a `CardPositioning::Left` card and the left edge of the viewport.
@@ -88,6 +91,24 @@ const LEFT_EDGE_GAP: f32 = 40.0;
 /// Leaves the ability hotbar readable under a right-docked card.
 pub const HOTBAR_CLEARANCE: f32 = 150.0;
 const TOP_EDGE_GAP: f32 = 28.0;
+
+/// Vertical space a framed card spends on itself: the frame inset above and
+/// below, the header, and the footer's padding and rule.
+///
+/// A card that sizes itself to its content adds its body height to this rather
+/// than re-deriving the constants at the call site — they are private, and the
+/// frame inset in particular (64 px, to clear the panel's gold corners) is easy
+/// to forget and lands the body on top of the artwork when it is.
+/// `footer_content_height` is the height of the widget the caller puts in the
+/// footer, or `0.0` for a card without one.
+pub fn framed_chrome_height(footer_content_height: f32) -> f32 {
+    let footer = if footer_content_height > 0.0 {
+        FOOTER_PADDING_TOP + FOOTER_RULE + footer_content_height
+    } else {
+        0.0
+    };
+    FRAME_INNER_PADDING * 2.0 + HEADER_HEIGHT + HEADER_BOTTOM_GAP + footer
+}
 
 /// Layout variant for the close button inside the header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -354,8 +375,8 @@ impl<'a> CardBuilder<'a> {
                             width: Val::Percent(100.0),
                             flex_direction: FlexDirection::Row,
                             column_gap: Val::Px(8.0),
-                            padding: UiRect::top(Val::Px(8.0)),
-                            border: UiRect::top(Val::Px(1.0)),
+                            padding: UiRect::top(Val::Px(FOOTER_PADDING_TOP)),
+                            border: UiRect::top(Val::Px(FOOTER_RULE)),
                             flex_shrink: 0.0,
                             ..default()
                         },

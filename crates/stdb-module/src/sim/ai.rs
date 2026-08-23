@@ -475,7 +475,7 @@ fn step_boss(
             // and a breath fired from a stale facing points at where the target
             // used to be.
             let boss = chase(ctx, boss, phase, main);
-            if let Some(config) = world::boss_config_for("boss_dragon") {
+            if let Some(config) = world::boss_config_for(&state.kind_id) {
                 run_rotation(ctx, &boss, &config, &living, main, &mut rotation);
             }
         }

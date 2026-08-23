@@ -10,6 +10,7 @@ use crate::ability_definitions::molten_eruption::MoltenEruption;
 use crate::ability_definitions::searing_breath::SearingBreath;
 use crate::ability_definitions::tail_sweep::TailSweep;
 use crate::ability_definitions::wing_buffet::WingBuffet;
+use crate::item_definitions::weapons::sword::sword::Sword;
 use crate::placeables::enemy;
 
 #[enemy(
@@ -22,6 +23,7 @@ use crate::placeables::enemy;
     arena = 12.0,
     aggro = 12.0,
     leash_aggro = 12.0,
+    respawn = 10.0,
     enrage_after = 180.0,
     origin = Spawn,
     threat = Table,
@@ -44,6 +46,10 @@ use crate::placeables::enemy;
         WingBuffet(when = (targeting = Self, hp_below = 0.33)),
         DragonClaw(when = (targeting = Main, hp_below = 0.33)),
     ],
+    loot(
+        gold = 200..400,
+        items = [(Sword, 5)],
+    ),
 )]
 pub struct BossDragon;
 
@@ -87,7 +93,21 @@ mod tests {
         assert_eq!(enemy.aggro, 12.0);
         assert_eq!(enemy.leash_aggro, 12.0);
         assert_eq!(enemy.rank, EnemyRank::Boss);
+        assert_eq!(enemy.respawn_seconds, 10.0);
         assert_eq!(BossDragon.boss_config().arena_radius, 12.0);
+    }
+
+    #[test]
+    fn boss_dragon_drops_a_purse_and_a_rare_sword() {
+        let loot = BossDragon
+            .enemy_config()
+            .loot
+            .expect("boss dragon has a loot table");
+        assert_eq!(*loot.gold.start(), 200);
+        assert_eq!(*loot.gold.end(), 400);
+        assert_eq!(loot.drops.len(), 1);
+        assert_eq!(loot.drops[0].item_id.as_str(), "sword");
+        assert_eq!(loot.drops[0].chance_percent, 5);
     }
 
     #[test]

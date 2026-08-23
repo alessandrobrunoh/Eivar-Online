@@ -271,10 +271,8 @@ pub fn spend_mana(ctx: &ReducerContext, entity_id: u64, cost: f32) -> Result<(),
 
 /// Whether a crowd control effect currently prevents this entity from casting.
 ///
-/// The domain's `CrowdControlKind` only knows `Stun`, so it cannot classify the
-/// `Silence` the row enum carries; the predicate lives here until the two enums
-/// agree. `Root` and `Slow` deliberately do not block casting — they are
-/// movement effects.
+/// Delegates to the CC module so Stun/Silence cannot drift from the domain
+/// rulebook. Root and Slow do not block casting.
 pub fn casting_blocked(ctx: &ReducerContext, entity_id: u64) -> bool {
     // Delegates so the two cannot drift on which effects gag a caster.
     crate::sim::crowd_control::is_casting_blocked(ctx, entity_id)

@@ -76,7 +76,7 @@ mod tests {
             animation: "bite",
             impact_vfx: "drain",
             impact_delay: 0.1,
-            stun_seconds: 0.0,
+            control: None,
             payload: crate::abilities::ManifestationPayload::default(),
         };
 

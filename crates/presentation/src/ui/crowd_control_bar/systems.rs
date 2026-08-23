@@ -18,8 +18,8 @@ const BAR_OFFSET: Vec3 = Vec3::new(0.0, 3.1, 0.0);
 
 /// Spawns/despends one screen-space bar per entity with blocking crowd control.
 ///
-/// Only renders a bar when the entity has a non-empty CrowdControlState with
-/// a blocking effect (e.g., Stun). This system reacts to lifecycle changes,
+/// Only renders a bar when the entity has a non-empty CrowdControlState
+/// (Stun, Root, or Silence). This system reacts to lifecycle changes,
 /// while positioning and content updates are handled separately.
 ///
 /// # Example
@@ -43,9 +43,8 @@ pub fn sync_screen_cc_bars(
             None => continue,
         };
 
-        // Only consider entities with blocking CC
-        if !cc_state.is_empty() && cc_state.has_blocking_cc() {
-            if let Some(active_cc) = cc_state.longest_blocking() {
+        if !cc_state.is_empty() {
+            if let Some(active_cc) = cc_state.longest() {
                 blocking_entities.insert(entity, active_cc.clone());
             }
         }
@@ -109,13 +108,12 @@ pub fn update_screen_cc_bars(
             continue;
         };
 
-        // Check if still has blocking CC
-        if !cc_state.has_blocking_cc() {
+        if cc_state.is_empty() {
             set_bar_display(&mut node, &mut parts, Display::None);
             continue;
         }
 
-        let Some(active_cc) = cc_state.longest_blocking() else {
+        let Some(active_cc) = cc_state.longest() else {
             set_bar_display(&mut node, &mut parts, Display::None);
             continue;
         };

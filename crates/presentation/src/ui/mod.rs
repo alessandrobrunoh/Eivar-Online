@@ -18,6 +18,7 @@ pub mod floating_text;
 pub mod gather_bar;
 
 pub mod inventory;
+pub mod loot;
 pub mod login;
 pub mod main_menu;
 pub mod market;

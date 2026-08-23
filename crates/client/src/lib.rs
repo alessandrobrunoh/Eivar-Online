@@ -6,6 +6,7 @@
 pub mod app_state;
 pub mod gathering;
 pub mod local_player;
+pub mod loot;
 pub mod movement;
 pub mod network;
 pub mod player_movement;

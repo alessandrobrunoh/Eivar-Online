@@ -22,7 +22,7 @@ use super::{
 use crate::ui::{
     button::{spawn_bar_child, BarButtonKind},
     card::{CardBuilder, CardFrameAssets, CardKind, CardWindow},
-    scrollbar::ScrollView,
+    scrollbar::{descendant_scroll, ScrollView},
     theme::UiTheme,
 };
 
@@ -380,7 +380,7 @@ pub(super) fn refresh_item_detail_on_equipment_change(
         return;
     }
 
-    detail_state.scroll = descendant_editor_scroll(detail_entity, &children, &scroll_views);
+    detail_state.scroll = descendant_scroll(detail_entity, &children, &scroll_views);
     commands.entity(detail_entity).despawn();
     let known = known.cloned().unwrap_or_default();
     spawn_item_detail_card(
@@ -409,23 +409,6 @@ fn selection_is_empty(
             .is_none_or(Option::is_none),
         InventorySelection::Equipment(slot) => equipment.get(slot).is_none(),
     }
-}
-
-fn descendant_editor_scroll(
-    root: Entity,
-    children: &Query<&Children>,
-    scroll_views: &Query<&ScrollView>,
-) -> f32 {
-    let mut stack = vec![root];
-    while let Some(entity) = stack.pop() {
-        if let Ok(view) = scroll_views.get(entity) {
-            return view.current_scroll;
-        }
-        if let Ok(child_list) = children.get(entity) {
-            stack.extend(child_list.iter());
-        }
-    }
-    0.0
 }
 
 pub fn despawn_detail_cards(commands: &mut Commands, cards: &Query<(Entity, &CardWindow)>) {

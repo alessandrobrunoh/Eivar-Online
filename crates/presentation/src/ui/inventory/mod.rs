@@ -40,7 +40,7 @@ const SECTION_GAP: f32 = 8.0;
 const SLOT_EMPTY_PATH: &str = "ui/hud/slot_empty_01.png";
 const SLOT_ACTIVE_PATH: &str = "ui/hud/slot_active.png";
 
-pub(super) fn load_item_icon(
+pub(crate) fn load_item_icon(
     asset_server: &AssetServer,
     registry: &ItemRegistry,
     item_id: &ItemId,

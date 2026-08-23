@@ -16,7 +16,7 @@
 //!   survive a republish.
 //! - **Runtime**: `game_entity`, `entity_stats`, `cast_state`, `cooldown`,
 //!   `projectile`, `aoe_region`, `crowd_control`, `threat`, `stat_modifier`,
-//!   `gather_session`, `craft_session`. Conceptually these die with the session, so `init`
+//!   `gather_session`, `craft_session`, `loot_bag`, `loot_bag_slot`. Conceptually these die with the session, so `init`
 //!   clears and re-seeds them — otherwise a republish inherits yesterday's
 //!   projectiles mid-flight.
 //!
@@ -714,6 +714,10 @@ pub struct CrowdControl {
     /// a fill ratio: it only ever sees the countdown, so the first frame it
     /// observes would always look like a full bar.
     pub total_seconds: f32,
+    /// Owning `active_status.id`. One status instance, one CC row; the status
+    /// timer is authoritative and this remaining/total is a denormalized copy.
+    #[unique]
+    pub origin_status_instance_id: u64,
 }
 
 /// Semantic status instance. Specialized runtime tables remain optimized child
@@ -734,7 +738,7 @@ pub struct ActiveStatus {
     pub potency: f32,
     pub remaining_seconds: f32,
     pub total_seconds: f32,
-    /// Present while the status is represented by the legacy CC table.
+    /// Present when this status owns a hard-control child in `crowd_control`.
     pub control_kind: Option<CrowdControlKindRow>,
 }
 
@@ -836,6 +840,8 @@ pub enum BossPhaseRow {
 pub struct BossState {
     #[primary_key]
     pub entity_id: u64,
+    /// Placeable catalog key (`boss_dragon`), same role as [`EnemyAi::kind_id`].
+    pub kind_id: String,
     pub phase: BossPhaseRow,
     pub arena_center: Vec3Row,
     pub arena_radius: f32,
@@ -944,6 +950,48 @@ pub struct CraftSession {
     pub elapsed_seconds: f32,
     pub required_seconds: f32,
     pub start_position: Vec3Row,
+}
+
+// ---------------------------------------------------------------------------
+// Loot bags
+// ---------------------------------------------------------------------------
+
+/// Why a bag exists. Player corpses dump exact instances; enemies roll a table.
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LootSourceRow {
+    PlayerCorpse,
+    Enemy,
+}
+
+/// A sack on the ground. Runtime: cleared on init, expired by the tick.
+#[table(
+    accessor = loot_bag,
+    public,
+    index(accessor = by_expiry, btree(columns = [expires_at]))
+)]
+#[derive(Clone)]
+pub struct LootBag {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub position: Vec3Row,
+    pub gold: u64,
+    pub expires_at: Timestamp,
+    pub source: LootSourceRow,
+}
+
+/// One occupied slot in a loot bag. Packed at spawn; holes are allowed after
+/// a take so remaining `slot_index` values stay stable for in-flight clicks.
+#[table(accessor = loot_bag_slot, public)]
+#[derive(Clone)]
+pub struct LootBagSlot {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub bag_id: u64,
+    pub slot_index: u8,
+    pub item: ItemInstanceRow,
 }
 
 // ---------------------------------------------------------------------------

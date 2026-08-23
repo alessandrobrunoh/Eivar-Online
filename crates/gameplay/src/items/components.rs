@@ -234,6 +234,71 @@ impl Inventory {
         amount - remaining
     }
 
+    /// Places `instance` into this bag.
+    ///
+    /// Mergeable materials fill existing stacks first, then occupy at most one
+    /// empty slot. Anything that still does not fit is returned so the caller
+    /// can leave it where it came from (a loot bag). Unique items are
+    /// all-or-nothing: [`StackOpError::InventoryFull`] leaves the bag unchanged.
+    pub fn insert_instance(
+        &mut self,
+        mut instance: ItemInstance,
+        stacks: bool,
+    ) -> Result<Option<ItemInstance>, StackOpError> {
+        if instance.quantity == 0 {
+            return Err(StackOpError::AmountZero);
+        }
+        let merge = stacks && instance.is_stack_mergeable();
+        if !merge {
+            let Some(index) = self.slots.iter().position(Option::is_none) else {
+                return Err(StackOpError::InventoryFull);
+            };
+            self.slots[index] = Some(instance);
+            return Ok(None);
+        }
+
+        let mut placed = 0u32;
+        for slot in &mut self.slots {
+            if instance.quantity == 0 {
+                break;
+            }
+            let Some(existing) = slot.as_mut() else {
+                continue;
+            };
+            if existing.item_id != instance.item_id || !existing.is_stack_mergeable() {
+                continue;
+            }
+            let room = Self::MAX_STACK.saturating_sub(existing.quantity);
+            let add = instance.quantity.min(room);
+            existing.quantity += add;
+            instance.quantity -= add;
+            placed += add;
+        }
+
+        if instance.quantity > 0 {
+            if let Some(index) = self.slots.iter().position(Option::is_none) {
+                let qty = instance.quantity.min(Self::MAX_STACK);
+                let leftover_qty = instance.quantity - qty;
+                let mut occupying = instance.clone();
+                occupying.quantity = qty;
+                if leftover_qty > 0 {
+                    occupying.instance_id = ItemInstanceId::unassigned();
+                }
+                self.slots[index] = Some(occupying);
+                instance.quantity = leftover_qty;
+                placed += qty;
+            }
+        }
+
+        if placed == 0 {
+            Err(StackOpError::InventoryFull)
+        } else if instance.quantity == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(instance))
+        }
+    }
+
     /// Amount the item-info split control should start at for a pile of `quantity`.
     ///
     /// Half the pile, leaving at least one piece in the source. `0` when the
@@ -671,6 +736,49 @@ mod tests {
         let mut instance = ItemInstance::new(ItemId::new("sword"));
         instance.instance_id = ItemInstanceId(id);
         instance
+    }
+
+    #[test]
+    fn insert_instance_moves_a_unique_item_with_its_id() {
+        let mut inv = Inventory::default();
+        assert_eq!(inv.insert_instance(sword(42), false).unwrap(), None);
+        assert_eq!(
+            inv.slots[0].as_ref().map(|item| item.instance_id),
+            Some(ItemInstanceId(42))
+        );
+    }
+
+    #[test]
+    fn insert_instance_refuses_a_unique_item_when_full() {
+        let mut inv = Inventory::default();
+        for (slot, id) in inv.slots.iter_mut().zip(1u64..) {
+            *slot = Some(sword(id));
+        }
+        assert_eq!(
+            inv.insert_instance(sword(99), false),
+            Err(StackOpError::InventoryFull)
+        );
+    }
+
+    #[test]
+    fn insert_instance_merges_wood_into_an_existing_pile() {
+        let mut inv = Inventory::default();
+        inv.slots[0] = Some(wood_stack(1, 10));
+        assert_eq!(inv.insert_instance(wood_stack(7, 4), true).unwrap(), None);
+        assert_eq!(inv.slots[0].as_ref().map(|item| item.quantity), Some(14));
+        assert!(inv.slots[1].is_none());
+    }
+
+    #[test]
+    fn insert_instance_returns_leftover_when_only_part_fits() {
+        let mut inv = Inventory::default();
+        inv.slots[0] = Some(wood_stack(1, 190));
+        for slot in inv.slots.iter_mut().skip(1) {
+            *slot = Some(sword(2));
+        }
+        let leftover = inv.insert_instance(wood_stack(7, 20), true).unwrap();
+        assert_eq!(leftover.as_ref().map(|item| item.quantity), Some(10));
+        assert_eq!(inv.slots[0].as_ref().map(|item| item.quantity), Some(200));
     }
 
     #[test]

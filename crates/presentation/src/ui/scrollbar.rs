@@ -61,6 +61,31 @@ pub struct ScrollbarThumb {
     pub drag_start_scroll: f32,
 }
 
+/// Current offset of the first [`ScrollView`] under `root`, or `0.0` when the
+/// subtree has none.
+///
+/// Panels that rebuild themselves wholesale — the inventory detail editor, the
+/// loot bag — despawn the view and lose its position with it. Reading the
+/// offset back out just before the despawn and feeding it to
+/// [`spawn_scroll_view_scrolled`] is what keeps a list from snapping to the top
+/// after every click.
+pub fn descendant_scroll(
+    root: Entity,
+    children: &Query<&Children>,
+    scroll_views: &Query<&ScrollView>,
+) -> f32 {
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if let Ok(view) = scroll_views.get(entity) {
+            return view.current_scroll;
+        }
+        if let Ok(child_list) = children.get(entity) {
+            stack.extend(child_list.iter());
+        }
+    }
+    0.0
+}
+
 /// Crea una ScrollView. Ritorna l'Entity del wrapper esterno.
 pub fn spawn_scroll_view(
     commands: &mut Commands,

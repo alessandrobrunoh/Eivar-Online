@@ -4,6 +4,7 @@ use crate::assets::{BossDragonAssets, CreatureAssets, PlayerAssets, WeaponAssets
 use crate::game_state::Screen;
 use bevymmo_gameplay::entity::boss::components::Boss;
 use bevymmo_gameplay::entity::components::EntityKind;
+use bevymmo_client::loot::LootBagMarker;
 use bevymmo_gameplay::gathering::Harvestable;
 use bevymmo_gameplay::items::components::Equipment;
 use bevymmo_gameplay::placeables::{AssetHint, KindId, PlaceableRegistry};
@@ -224,11 +225,29 @@ fn spawn_entity_meshes(
             Option<&ProjectileVisual>,
             Option<&Boss>,
             Option<&Harvestable>,
+            Option<&LootBagMarker>,
         ),
         Without<RenderedEntity>,
     >,
 ) {
-    for (entity, position, color, kind, projectile_visual, boss, harvestable) in entities.iter() {
+    for (entity, position, color, kind, projectile_visual, boss, harvestable, loot_bag) in
+        entities.iter()
+    {
+        if loot_bag.is_some() {
+            let mesh = meshes.add(Cuboid::new(0.7, 0.55, 0.7));
+            let material = materials.add(StandardMaterial {
+                base_color: Color::srgb(0.42, 0.28, 0.14),
+                perceptual_roughness: 0.9,
+                ..default()
+            });
+            commands.entity(entity).insert((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                Transform::from_translation(position.0 + Vec3::Y * 0.28),
+                RenderedEntity,
+            ));
+            continue;
+        }
         if let (Some(harvestable), Some(placeables), Some(asset_server)) =
             (harvestable, placeables.as_ref(), asset_server.as_ref())
         {

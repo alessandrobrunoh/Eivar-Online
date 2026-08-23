@@ -21,7 +21,7 @@ pub mod status_definitions;
 
 // Macro-generated definitions use these stable framework paths.
 pub use bevymmo_gameplay::{
-    abilities, crafting, crowd_control, effects, entity, items, placeables, spells, stats,
+    abilities, crafting, crowd_control, effects, entity, items, loot, placeables, spells, stats,
 };
 pub use bevymmo_gameplay::{ids, math};
 pub use bevymmo_gameplay::{EntityId, Rgba};

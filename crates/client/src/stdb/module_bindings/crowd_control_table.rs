@@ -195,10 +195,45 @@ impl<'ctx> CrowdControlIdUnique<'ctx> {
     }
 }
 
+/// Access to the `origin_status_instance_id` unique index on the table `crowd_control`,
+/// which allows point queries on the field of the same name
+/// via the [`CrowdControlOriginStatusInstanceIdUnique::find`] method.
+///
+/// Users are encouraged not to explicitly reference this type,
+/// but to directly chain method calls,
+/// like `ctx.db.crowd_control().origin_status_instance_id().find(...)`.
+pub struct CrowdControlOriginStatusInstanceIdUnique<'ctx> {
+    imp: __sdk::UniqueConstraintHandle<CrowdControl, u64>,
+    phantom: std::marker::PhantomData<&'ctx super::RemoteTables>,
+}
+
+impl<'ctx> CrowdControlTableHandle<'ctx> {
+    /// Get a handle on the `origin_status_instance_id` unique index on the table `crowd_control`.
+    pub fn origin_status_instance_id(&self) -> CrowdControlOriginStatusInstanceIdUnique<'ctx> {
+        CrowdControlOriginStatusInstanceIdUnique {
+            imp: self
+                .imp
+                .get_unique_constraint::<u64>("origin_status_instance_id"),
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'ctx> CrowdControlOriginStatusInstanceIdUnique<'ctx> {
+    /// Find the subscribed row whose `origin_status_instance_id` column value is equal to `col_val`,
+    /// if such a row is present in the client cache.
+    pub fn find(&self, col_val: &u64) -> Option<CrowdControl> {
+        self.imp.find(col_val)
+    }
+}
+
 #[doc(hidden)]
 pub(super) fn register_table(client_cache: &mut __sdk::ClientCache<super::RemoteModule>) {
     let _table = client_cache.get_or_make_table::<CrowdControl>("crowd_control");
     _table.add_unique_constraint::<u64>("id", |row| &row.id);
+    _table.add_unique_constraint::<u64>("origin_status_instance_id", |row| {
+        &row.origin_status_instance_id
+    });
 }
 
 #[doc(hidden)]

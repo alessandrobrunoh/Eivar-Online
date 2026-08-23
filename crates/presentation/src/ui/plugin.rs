@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use super::{
     boss_bar, card, character_roster, chat, connecting, crafting, crowd_control_bar, death_screen,
-    debug_position, entity_bar, floating_text, gather_bar, inventory, login, main_menu, market,
+    debug_position, entity_bar, floating_text, gather_bar, inventory, login, loot, main_menu, market,
     notices, npc_sidebar, pause_menu, player_stats, scoreboard, scrollbar, settings, status_bar,
     systems, target_frame, target_indicator,
 };
@@ -46,6 +46,7 @@ impl Plugin for UiPlugin {
             death_screen::DeathScreenPlugin,
             crowd_control_bar::CrowdControlBarPlugin,
             inventory::InventoryUiPlugin,
+            loot::LootUiPlugin,
             gather_bar::GatherBarPlugin,
             floating_text::FloatingTextPlugin,
             boss_bar::BossBarPlugin,
