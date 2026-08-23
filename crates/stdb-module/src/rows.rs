@@ -172,6 +172,10 @@ impl From<Vec3Row> for Vec3 {
 pub struct StatsRow {
     pub current_health: f32,
     pub max_health: f32,
+    /// Current pure shield pool, consumed before armor and health.
+    pub current_shield: f32,
+    /// Maximum pure shield capacity.
+    pub max_shield: f32,
     pub max_mana: f32,
     pub mana_regeneration: f32,
     pub armor: f32,
@@ -191,6 +195,8 @@ impl From<&StatsBundleData> for StatsRow {
         Self {
             current_health: s.vital.current_health,
             max_health: s.vital.max_health,
+            current_shield: 0.0,
+            max_shield: 0.0,
             max_mana: s.vital.max_mana,
             mana_regeneration: s.vital.mana_regeneration,
             armor: s.combat.armor,

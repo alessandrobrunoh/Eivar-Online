@@ -37,7 +37,7 @@ use bevymmo_domain::items::effects::ItemEffect;
 use bevymmo_domain::stats::components::StatsBundleData;
 use bevymmo_domain::stats::defaults;
 use bevymmo_domain::stats::events::{ModifierOp, StatField};
-use bevymmo_domain::stats::formulas::damage_after_armor;
+use bevymmo_domain::stats::formulas::damage_after_shield;
 use spacetimedb::{ReducerContext, Table, Uuid};
 
 use crate::rows::{equipment_from_rows, StatsRow, EQUIP_SLOTS};
@@ -410,7 +410,9 @@ pub fn apply_damage(
     }
 
     let bundle = StatsBundleData::from(row.stats);
-    let effective = damage_after_armor(amount, &bundle.combat);
+    let damage = damage_after_shield(amount, row.stats.current_shield, &bundle.combat);
+    let effective = damage.health_damage;
+    let current_shield = damage.remaining_shield;
     let current_health = (row.stats.current_health - effective).max(0.0);
     let killed = current_health <= 0.0;
     let is_player = entity.owner_character_id.is_some();
@@ -420,6 +422,7 @@ pub fn apply_damage(
     ctx.db.entity_stats().entity_id().update(EntityStats {
         stats: StatsRow {
             current_health,
+            current_shield,
             ..row.stats
         },
         ..row
