@@ -35,9 +35,9 @@ use super::module_bindings::register_reducer::register;
 use super::module_bindings::revoke_api_key_reducer::revoke_api_key;
 use super::module_bindings::stats_row_type::StatsRow;
 use super::module_bindings::{
-    CharacterWalletTableAccess, DbConnection, ErrorContext, Market, MarketBuyOrder,
+    CharacterWalletTableAccess, DbConnection, EntityStatsTableAccess, ErrorContext, Market, MarketBuyOrder,
     MarketBuyOrderTableAccess, MarketSellOrder, MarketSellOrderTableAccess, MarketTableAccess,
-    MyApiKeysTableAccess, Player, PlayerStatsTableAccess, PlayerTableAccess, ReducerEventContext,
+    MyApiKeysTableAccess, Player, PlayerTableAccess, ReducerEventContext,
     SessionTableAccess,
 };
 
@@ -287,13 +287,17 @@ impl GatewayConnection {
         self.conn.db().my_api_keys().iter().find(|row| row.id == id)
     }
 
+    /// Effective stats for one character, including current health and shield.
+    ///
+    /// `player_stats` stores base values, while `entity_stats` is the
+    /// authoritative runtime row used by combat and replication.
     pub fn player_stats(&self, character_id: uuid::Uuid) -> Option<StatsRow> {
-        let character_id = spacetimedb_sdk::Uuid::from_u128(character_id.as_u128());
+        let player = self.player(character_id)?;
         self.conn
             .db()
-            .player_stats()
-            .iter()
-            .find(|row| row.character_id == character_id)
+            .entity_stats()
+            .entity_id()
+            .find(&player.entity_id)
             .map(|row| row.stats)
     }
 

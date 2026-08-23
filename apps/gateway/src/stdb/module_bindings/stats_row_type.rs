@@ -9,6 +9,8 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 pub struct StatsRow {
     pub current_health: f32,
     pub max_health: f32,
+    pub current_shield: f32,
+    pub max_shield: f32,
     pub max_mana: f32,
     pub mana_regeneration: f32,
     pub armor: f32,

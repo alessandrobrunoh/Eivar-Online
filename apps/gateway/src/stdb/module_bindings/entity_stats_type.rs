@@ -12,6 +12,7 @@ pub struct EntityStats {
     pub entity_id: u64,
     pub stats: StatsRow,
     pub current_mana: f32,
+    pub shield_remaining_seconds: Option<f32>,
 }
 
 impl __sdk::InModule for EntityStats {
@@ -25,6 +26,7 @@ pub struct EntityStatsCols {
     pub entity_id: __sdk::__query_builder::Col<EntityStats, u64>,
     pub stats: __sdk::__query_builder::Col<EntityStats, StatsRow>,
     pub current_mana: __sdk::__query_builder::Col<EntityStats, f32>,
+    pub shield_remaining_seconds: __sdk::__query_builder::Col<EntityStats, Option<f32>>,
 }
 
 impl __sdk::__query_builder::HasCols for EntityStats {
@@ -34,6 +36,10 @@ impl __sdk::__query_builder::HasCols for EntityStats {
             entity_id: __sdk::__query_builder::Col::new(table_name, "entity_id"),
             stats: __sdk::__query_builder::Col::new(table_name, "stats"),
             current_mana: __sdk::__query_builder::Col::new(table_name, "current_mana"),
+            shield_remaining_seconds: __sdk::__query_builder::Col::new(
+                table_name,
+                "shield_remaining_seconds",
+            ),
         }
     }
 }

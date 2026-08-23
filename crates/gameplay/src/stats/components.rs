@@ -105,6 +105,18 @@ impl VitalStats {
     }
 }
 
+/// Pure shield pool, kept separate from health and armor.
+#[cfg_attr(
+    feature = "bevy",
+    derive(bevy_ecs::component::Component, bevy_reflect::Reflect)
+)]
+#[cfg_attr(feature = "bevy", reflect(Component))]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+pub struct ShieldStats {
+    pub current: f32,
+    pub max: f32,
+}
+
 /// Gathering stats: channel speed rating and extra-piece bonus.
 ///
 /// `speed` 0 is the authored channel duration; 100 halves it.

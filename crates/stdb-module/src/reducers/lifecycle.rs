@@ -7,8 +7,8 @@ use crate::reducers::account::caller_session;
 use crate::rows::{equipment_to_rows, inventory_to_rows, HotbarRow, StatsRow, Vec3Row};
 use crate::tables::{
     active_status, aoe_region, boss_state, cast_state, character_wallet, cooldown, crowd_control,
-    craft_session, enemy_ai, entity_stats, equipment, game_entity, gather_session, grid_cell,
-    hotbar, inventory, loot_bag, loot_bag_slot,
+    craft_session, domain_event_cleanup_schedule, domain_event_config, enemy_ai, entity_stats,
+    equipment, game_entity, gather_session, grid_cell, hotbar, inventory, loot_bag, loot_bag_slot,
     known_ancient_language, npc, periodic_effect, player, player_stats, projectile, resonance,
     session, stat_modifier, threat, tick_schedule, tick_stats, CharacterWallet, ColorRow,
     EntityKindRow, EntityStateRow, EquipmentTable, GameEntity, Hotbar, InventoryTable,

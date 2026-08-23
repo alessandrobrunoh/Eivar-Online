@@ -56,7 +56,9 @@ use bevymmo_gameplay::gathering::{ActiveGather, Harvestable};
 use crate::loot::{LootBagMarker, LootBagView, OpenLootBag, WorldLoot};
 use bevymmo_gameplay::items::components::{Equipment, Inventory};
 use bevymmo_gameplay::items::{ItemId, ItemRegistry};
-use bevymmo_gameplay::stats::components::{CombatStats, GatheringStats, MovementStats, VitalStats};
+use bevymmo_gameplay::stats::components::{
+    CombatStats, GatheringStats, MovementStats, ShieldStats, VitalStats,
+};
 use bevymmo_network::network::protocol::{SpellCastEnded, SpellCastProgress, SpellVisualEffect};
 use bevymmo_network::world_components::{
     AoeZone, EntityColor, LookDirection, NetworkEntityId, Position, ProjectileFlight,
@@ -1566,6 +1568,10 @@ fn entity_for(map: &StdbEntityMap, character_id: Uuid) -> Option<Entity> {
 fn apply_stats(commands: &mut Commands, entity: Entity, row: &EntityStats) {
     commands.entity(entity).insert((
         vital_from_entity_stats(row),
+        ShieldStats {
+            current: row.stats.current_shield,
+            max: row.stats.max_shield,
+        },
         CombatStats {
             armor: row.stats.armor,
             attack_power: row.stats.attack_power,
@@ -2876,6 +2882,8 @@ mod tests {
             stats: StatsRow {
                 current_health: 80.0,
                 max_health: 100.0,
+                current_shield: 25.0,
+                max_shield: 100.0,
                 max_mana: 50.0,
                 mana_regeneration: 5.0,
                 armor: 10.0,
@@ -2886,6 +2894,7 @@ mod tests {
                 gathering_bonus: 0.0,
             },
             current_mana: 17.0,
+            shield_remaining_seconds: None,
         };
         let vital = vital_from_entity_stats(&row);
         assert_eq!(vital.current_health, 80.0);

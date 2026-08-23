@@ -51,6 +51,7 @@ pub mod damage_event_row_type;
 pub mod damage_event_table;
 pub mod delete_character_reducer;
 pub mod destroy_item_reducer;
+
 pub mod effect_payload_filter_row_type;
 pub mod effect_payload_kind_row_type;
 pub mod effect_payload_row_type;
@@ -150,6 +151,7 @@ pub mod session_table;
 pub mod session_type;
 pub mod set_ability_selection_reducer;
 pub mod set_armor_inscription_reducer;
+
 pub mod set_resonance_xp_reducer;
 pub mod set_root_inscription_reducer;
 pub mod slot_inscription_row_type;
@@ -218,6 +220,7 @@ pub use damage_event_row_type::DamageEventRow;
 pub use damage_event_table::*;
 pub use delete_character_reducer::delete_character;
 pub use destroy_item_reducer::destroy_item;
+
 pub use effect_payload_filter_row_type::EffectPayloadFilterRow;
 pub use effect_payload_kind_row_type::EffectPayloadKindRow;
 pub use effect_payload_row_type::EffectPayloadRow;
@@ -317,6 +320,7 @@ pub use session_table::*;
 pub use session_type::Session;
 pub use set_ability_selection_reducer::set_ability_selection;
 pub use set_armor_inscription_reducer::set_armor_inscription;
+
 pub use set_resonance_xp_reducer::set_resonance_xp;
 pub use set_root_inscription_reducer::set_root_inscription;
 pub use slot_inscription_row_type::SlotInscriptionRow;
@@ -499,6 +503,7 @@ pub enum Reducer {
         root_word: Option<String>,
         secondary_words: Vec<String>,
     },
+
     SetResonanceXp {
         root_word_id: String,
         xp: u64,
@@ -579,6 +584,7 @@ impl __sdk::Reducer for Reducer {
             Reducer::SendChatMessage { .. } => "send_chat_message",
             Reducer::SetAbilitySelection { .. } => "set_ability_selection",
             Reducer::SetArmorInscription { .. } => "set_armor_inscription",
+
             Reducer::SetResonanceXp { .. } => "set_resonance_xp",
             Reducer::SetRootInscription { .. } => "set_root_inscription",
             Reducer::SplitItem { .. } => "split_item",
@@ -840,6 +846,7 @@ impl __sdk::Reducer for Reducer {
                 root_word: root_word.clone(),
                 secondary_words: secondary_words.clone(),
             }),
+
             Reducer::SetResonanceXp {
                 root_word_id,
                 xp,

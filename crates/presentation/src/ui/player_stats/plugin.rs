@@ -28,7 +28,9 @@ mod tests {
     use crate::ui::theme::UiTheme;
     use bevymmo_client::local_player::LocalPlayer;
     use bevymmo_client::stdb::LocalGold;
-    use bevymmo_gameplay::stats::components::{CombatStats, MovementStats, VitalStats};
+    use bevymmo_gameplay::stats::components::{
+        CombatStats, MovementStats, ShieldStats, VitalStats,
+    };
 
     fn test_app() -> App {
         let mut app = App::new();
@@ -64,6 +66,10 @@ mod tests {
                 armor: 100.0,
                 threat_generation: 1.0,
             },
+            ShieldStats {
+                current: 1000.0,
+                max: 1000.0,
+            },
             VitalStats {
                 current_health: 100.0,
                 max_health: 100.0,
@@ -85,7 +91,7 @@ mod tests {
         assert_eq!(root.top, Val::Px(16.0));
         assert_eq!(
             panel_text(&mut app),
-            "HP: 100/100\nMana: 80/80\nMana Regen: 4.0/s\nArmor: 100 (50% reduction)\nAttack Power: 10\nMove Speed: 0.15\nGather Speed: 0\nGather Bonus: 0%\nGold: 0"
+            "HP: 100/100\nShield: 1000/1000\nMana: 80/80\nMana Regen: 4.0/s\nArmor: 100 (50% reduction)\nAttack Power: 10\nMove Speed: 0.15\nGather Speed: 0\nGather Bonus: 0%\nGold: 0"
         );
     }
 
@@ -132,7 +138,7 @@ mod tests {
         app.update();
         assert_eq!(
             panel_text(&mut app),
-            "HP: 100/100\nMana: 80/120\nMana Regen: 4.0/s\nArmor: 0 (0% reduction)\nAttack Power: 10\nMove Speed: 0.15\nGather Speed: 0\nGather Bonus: 0%\nGold: 0"
+            "HP: 100/100\nShield: 0/0\nMana: 80/120\nMana Regen: 4.0/s\nArmor: 0 (0% reduction)\nAttack Power: 10\nMove Speed: 0.15\nGather Speed: 0\nGather Bonus: 0%\nGold: 0"
         );
     }
 
@@ -159,7 +165,7 @@ mod tests {
         app.update();
         assert_eq!(
             panel_text(&mut app),
-            "HP: 100/100\nMana: 80/80\nMana Regen: 4.0/s\nArmor: 0 (0% reduction)\nAttack Power: 10\nMove Speed: 0.15\nGather Speed: 0\nGather Bonus: 0%\nGold: 150"
+            "HP: 100/100\nShield: 0/0\nMana: 80/80\nMana Regen: 4.0/s\nArmor: 0 (0% reduction)\nAttack Power: 10\nMove Speed: 0.15\nGather Speed: 0\nGather Bonus: 0%\nGold: 150"
         );
     }
 }
