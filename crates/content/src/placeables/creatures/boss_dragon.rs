@@ -51,8 +51,8 @@ pub struct BossDragon;
 mod tests {
     use super::*;
     use crate::placeables::{
-        pick_ability, AcquirePolicy, AggroOrigin, BossPlaceable, EnemyPlaceable, EnemyRank,
-        KindId, PlaceableRegistry, ThreatPolicy,
+        pick_ability, AcquirePolicy, AggroOrigin, BossPlaceable, EnemyPlaceable, EnemyRank, KindId,
+        PlaceableRegistry, ThreatPolicy,
     };
 
     #[test]

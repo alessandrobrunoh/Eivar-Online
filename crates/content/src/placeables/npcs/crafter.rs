@@ -8,7 +8,7 @@ use crate::placeables::npc;
     icon = "🔨",
     asset = "models/npcs/merchant.glb",
     tint = (0.85, 0.55, 0.25),
-    interaction = craft(Weapon),
+    interaction = craft(Weapon, Tool),
 )]
 pub struct WeaponCrafter;
 
@@ -16,7 +16,9 @@ pub struct WeaponCrafter;
 mod tests {
     use super::*;
     use crate::items::ItemCategory;
-    use crate::placeables::{InteractionKind, NpcPlaceable, PlaceableDefinition, PlaceableRegistry};
+    use crate::placeables::{
+        InteractionKind, NpcPlaceable, PlaceableDefinition, PlaceableRegistry,
+    };
 
     #[test]
     fn weapon_crafter_offers_weapon_recipes() {
@@ -26,7 +28,7 @@ mod tests {
         assert_eq!(
             def.interaction(),
             InteractionKind::Craft {
-                category: ItemCategory::Weapon
+                categories: vec![ItemCategory::Weapon, ItemCategory::Tool]
             }
         );
 

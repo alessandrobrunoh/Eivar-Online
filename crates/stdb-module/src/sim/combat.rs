@@ -929,6 +929,12 @@ fn apply_equipment_bonuses(ctx: &ReducerContext, character_id: Uuid, stats: &mut
                 continue;
             }
             if let ItemEffect::StatBonus { field, op, value } = effect {
+                // GatheringSpeed / GatheringBonus are resource-scoped: a node's
+                // `bonus_tools` decides when they apply. Folding them here
+                // would speed every gather, including the wrong resource.
+                if matches!(field, StatField::GatheringSpeed | StatField::GatheringBonus) {
+                    continue;
+                }
                 apply_stat_op(stats, *field, *op, *value);
             }
         }

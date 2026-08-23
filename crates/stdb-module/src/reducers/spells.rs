@@ -168,6 +168,14 @@ pub fn cast_weapon(
     )?;
     spells::spend_mana(ctx, caster.entity_id, preview.params.mana_cost)?;
     let cast_mode = preview.ability.cast_mode();
+    // Plant before facing so leftover chase cannot walk the next tick and
+    // cancel the wind-up. Instant keeps walking. A later click still
+    // interrupts CastTime / InterruptOnMove Channeling in `advance_casts`.
+    let caster = if cast_mode.holds_still() {
+        spells::stop_movement(ctx, caster)
+    } else {
+        caster
+    };
     let caster = face_target(
         ctx,
         caster,
@@ -245,7 +253,6 @@ pub fn cast_weapon(
             let required_seconds = preview.params.cast_time;
             let target_position = target_position.map(Vec3::from);
 
-            let caster = stop_movement(ctx, caster);
             ctx.db.cast_state().insert(CastState {
                 entity_id: caster.entity_id,
                 spell_id: ability_id.as_str().to_string(),
@@ -396,6 +403,11 @@ pub fn armor_cast(
         _ => return Err("invalid armor source".to_string()),
     };
 
+    let caster = if cast_mode.holds_still() {
+        spells::stop_movement(ctx, caster)
+    } else {
+        caster
+    };
     let caster = face_target(
         ctx,
         caster,
@@ -418,7 +430,6 @@ pub fn armor_cast(
     }
 
     let target_position = target_position.map(Vec3::from);
-    let caster = stop_movement(ctx, caster);
     let (kind, required_seconds, tick_interval_seconds, channel_movement_interrupts) =
         match cast_mode {
             AbilityCastMode::CastTime => {
@@ -562,17 +573,6 @@ fn cancel_active_cast(ctx: &ReducerContext, entity_id: u64) {
         spells::end_cast(ctx, entity_id, active.spell_id, true);
     }
     crate::sim::gathering::cancel_session(ctx, entity_id);
-}
-
-/// Clears the leftover dest when a wind-up starts so a previous click does
-/// not walk one tick and cancel the cast. A later click is still allowed
-/// and interrupts CastTime in `advance_casts`.
-fn stop_movement(ctx: &ReducerContext, caster: GameEntity) -> GameEntity {
-    ctx.db.game_entity().entity_id().update(GameEntity {
-        move_target: None,
-        state: EntityStateRow::Idle,
-        ..caster
-    })
 }
 
 fn parse_slot(slot: &str) -> Result<AbilitySlot, String> {

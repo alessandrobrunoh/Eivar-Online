@@ -21,7 +21,7 @@ use crate::ui::card::{
 use crate::ui::crafting::components::{
     CraftDialogCard, CraftListCard, CraftRecipeButton, CraftSubmitButton,
 };
-use crate::ui::crafting::crafter_category;
+use crate::ui::crafting::crafter_categories;
 use crate::ui::npc_sidebar::systems::{closest_friendly_hit, cursor_ray, EntityHit};
 use crate::ui::theme::UiTheme;
 use bevymmo_client::local_player::LocalPlayer;
@@ -65,7 +65,7 @@ pub fn crafter_npc_on_click(
         let Some(npc_kind) = npc_kind else {
             continue;
         };
-        let Some(category) = crafter_category(&npc_kind.kind_id, &placeables) else {
+        let Some(categories) = crafter_categories(&npc_kind.kind_id, &placeables) else {
             continue;
         };
         let distance = crate::ui::npc_sidebar::systems::point_to_ray_distance(
@@ -77,23 +77,23 @@ pub fn crafter_npc_on_click(
             continue;
         }
         hits.push(EntityHit { entity, distance });
-        category_for = Some((entity, category));
+        category_for = Some((entity, categories));
     }
 
     let Some(target_entity) = closest_friendly_hit(&hits) else {
         return;
     };
-    let category = category_for
-        .and_then(|(entity, category)| (entity == target_entity).then_some(category))
+    let categories = category_for
+        .and_then(|(entity, categories)| (entity == target_entity).then_some(categories))
         .or_else(|| {
             entity_query
                 .get(target_entity)
                 .ok()
                 .and_then(|(_, _, _, kind)| {
-                    kind.and_then(|kind| crafter_category(&kind.kind_id, &placeables))
+                    kind.and_then(|kind| crafter_categories(&kind.kind_id, &placeables))
                 })
         });
-    let Some(category) = category else {
+    let Some(categories) = categories else {
         return;
     };
 
@@ -113,7 +113,7 @@ pub fn crafter_npc_on_click(
         &item_registry,
         target_entity,
         &npc_name,
-        category,
+        categories,
     );
 }
 
@@ -124,10 +124,10 @@ fn spawn_craft_list(
     item_registry: &ItemRegistry,
     npc: Entity,
     npc_name: &str,
-    category: ItemCategory,
+    categories: Vec<ItemCategory>,
 ) {
     let vendor_bar = asset_server.load(ORNATE_BAR_NEUTRAL_PATH);
-    let recipes = item_registry.craftable_in(category);
+    let recipes = item_registry.craftable_in_any(&categories);
     let card_entity = CardBuilder::new(CardKind::Generic, npc_name)
         .frame(CardFrameAssets::load(asset_server))
         .width(Val::Px(320.0))
@@ -140,7 +140,7 @@ fn spawn_craft_list(
             let intro = if recipes.is_empty() {
                 "Nessun oggetto craftabile."
             } else {
-                "Armi craftabili"
+                "Oggetti craftabili"
             };
             body.spawn((
                 Text::new(intro),

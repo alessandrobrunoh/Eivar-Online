@@ -94,7 +94,7 @@ impl UiButtonImages {
         }
     }
 
-    fn placeholder() -> Self {
+    pub(crate) fn placeholder() -> Self {
         Self {
             default: Handle::default(),
             hover: Handle::default(),
@@ -324,7 +324,8 @@ fn spawn_label(
     ));
 }
 
-fn queue_bar_images(commands: &mut Commands, entity: Entity, kind: BarButtonKind) {
+/// Loads ornate bar textures onto `entity` once `AssetServer` is available.
+pub fn queue_bar_images(commands: &mut Commands, entity: Entity, kind: BarButtonKind) {
     commands.queue(move |world: &mut World| {
         insert_bar_images(world, entity, kind);
     });

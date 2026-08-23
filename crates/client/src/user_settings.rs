@@ -65,9 +65,15 @@ impl Resolution {
     pub fn label(self) -> String {
         format!("{}x{}", self.width, self.height)
     }
+
+    /// Parses `"1920x1080"`. Missing `x` or non-numeric sides → `None`.
+    pub fn parse_label(label: &str) -> Option<Self> {
+        let (w_str, h_str) = label.split_once('x')?;
+        Some(Self::new(w_str.parse().ok()?, h_str.parse().ok()?))
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GraphicsSettings {
     pub mode: WindowMode,
     /// Active resolution. For borderless/exclusive this matches the chosen
@@ -92,7 +98,7 @@ impl Default for GraphicsSettings {
 
 /// General preferences. `language` is stored as ISO 639-1 but only "en" is
 /// honored today (i18n not yet implemented).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GeneralSettings {
     #[serde(default = "default_language")]
     pub language: String,
@@ -118,6 +124,53 @@ impl Default for GeneralSettings {
             show_fps: false,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Gameplay (combat visuals)
+// ---------------------------------------------------------------------------
+
+fn default_true() -> bool {
+    true
+}
+
+/// Combat-visual preferences. Graphics stays window/vsync; these gate what
+/// the client draws during a fight.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GameplaySettings {
+    /// Ground telegraph and lingering area of hostile casters. Own aim
+    /// gizmos and impact VFX are not gated by this.
+    #[serde(default = "default_true")]
+    pub show_enemy_ability_previews: bool,
+}
+
+impl Default for GameplaySettings {
+    fn default() -> Self {
+        Self {
+            show_enemy_ability_previews: true,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Typed setting ids (UI → resource)
+// ---------------------------------------------------------------------------
+
+/// On/off setting. Widgets store this instead of a magic string.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SettingToggle {
+    Vsync,
+    ShowFps,
+    ShowEnemyAbilityPreviews,
+}
+
+/// Multi-choice setting. Widgets store this instead of a magic string.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SettingChoice {
+    WindowMode,
+    Resolution,
+    Language,
+    InterfaceScale,
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +331,7 @@ impl KeyBinding {
     /// Pretty label, e.g. "Ctrl+Shift+Q" or "Esc".
     pub fn label(self) -> String {
         let prefix = self.modifiers.label();
-        format!("{}{:?}", prefix, self.key)
+        format!("{}{}", prefix, key_code_label(self.key))
     }
 
     /// True when the given key + currently-held modifiers match this binding.
@@ -287,7 +340,38 @@ impl KeyBinding {
     }
 }
 
-#[derive(Clone, Debug, Default, Resource, Serialize, Deserialize)]
+/// Short, player-facing name for a key. Debug names like `KeyQ` become `Q`.
+pub fn key_code_label(key: KeyCode) -> String {
+    match key {
+        KeyCode::Escape => "Esc".into(),
+        KeyCode::Tab => "Tab".into(),
+        KeyCode::Enter | KeyCode::NumpadEnter => "Enter".into(),
+        KeyCode::Space => "Space".into(),
+        KeyCode::Backspace => "Backspace".into(),
+        KeyCode::Delete => "Del".into(),
+        KeyCode::PageUp => "Page Up".into(),
+        KeyCode::PageDown => "Page Down".into(),
+        KeyCode::Home => "Home".into(),
+        KeyCode::End => "End".into(),
+        KeyCode::Insert => "Insert".into(),
+        KeyCode::ArrowUp => "Up".into(),
+        KeyCode::ArrowDown => "Down".into(),
+        KeyCode::ArrowLeft => "Left".into(),
+        KeyCode::ArrowRight => "Right".into(),
+        other => {
+            let debug = format!("{other:?}");
+            if let Some(rest) = debug.strip_prefix("Key") {
+                rest.to_string()
+            } else if let Some(rest) = debug.strip_prefix("Digit") {
+                rest.to_string()
+            } else {
+                debug
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Resource, Serialize, Deserialize)]
 pub struct KeybindSettings {
     /// Missing entries fall back to [`KeyAction::default_binding`].
     #[serde(default)]
@@ -318,14 +402,75 @@ impl KeybindSettings {
 // Aggregated settings
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GameSettings {
     #[serde(default)]
     pub general: GeneralSettings,
     #[serde(default)]
     pub graphics: GraphicsSettings,
     #[serde(default)]
+    pub gameplay: GameplaySettings,
+    #[serde(default)]
     pub keybinds: KeybindSettings,
+}
+
+impl GameSettings {
+    /// Current value of an on/off setting.
+    pub fn toggle(&self, id: SettingToggle) -> bool {
+        match id {
+            SettingToggle::Vsync => self.graphics.vsync,
+            SettingToggle::ShowFps => self.general.show_fps,
+            SettingToggle::ShowEnemyAbilityPreviews => self.gameplay.show_enemy_ability_previews,
+        }
+    }
+
+    /// Writes an on/off setting.
+    pub fn set_toggle(&mut self, id: SettingToggle, on: bool) {
+        match id {
+            SettingToggle::Vsync => self.graphics.vsync = on,
+            SettingToggle::ShowFps => self.general.show_fps = on,
+            SettingToggle::ShowEnemyAbilityPreviews => {
+                self.gameplay.show_enemy_ability_previews = on
+            }
+        }
+    }
+
+    /// Applies a dropdown value. Returns `false` when `value` is not valid
+    /// for `id`, leaving the field unchanged.
+    pub fn set_choice(&mut self, id: SettingChoice, value: &str) -> bool {
+        match id {
+            SettingChoice::WindowMode => {
+                self.graphics.mode = match value {
+                    "windowed" => WindowMode::Windowed,
+                    "borderless" => WindowMode::Borderless,
+                    "exclusive" => WindowMode::Exclusive,
+                    _ => return false,
+                };
+                true
+            }
+            SettingChoice::Resolution => {
+                let Some(resolution) = Resolution::parse_label(value) else {
+                    return false;
+                };
+                self.graphics.resolution = resolution;
+                true
+            }
+            SettingChoice::Language => {
+                if value.is_empty() {
+                    return false;
+                }
+                self.general.language = value.to_string();
+                true
+            }
+            SettingChoice::InterfaceScale => {
+                let Ok(scale) = value.parse::<f32>() else {
+                    return false;
+                };
+                self.general.interface_scale = scale.clamp(0.5, 3.0);
+                true
+            }
+        }
+    }
 }
 
 /// Bevy resource holding the live, mutable user settings.
@@ -533,7 +678,16 @@ mod tests {
                 ..Default::default()
             },
         };
-        assert_eq!(b.label(), "Ctrl+KeyQ");
+        assert_eq!(b.label(), "Ctrl+Q");
+    }
+
+    #[test]
+    fn key_code_label_uses_short_names() {
+        assert_eq!(key_code_label(KeyCode::KeyQ), "Q");
+        assert_eq!(key_code_label(KeyCode::Escape), "Esc");
+        assert_eq!(key_code_label(KeyCode::Digit1), "1");
+        assert_eq!(key_code_label(KeyCode::PageUp), "Page Up");
+        assert_eq!(key_code_label(KeyCode::Tab), "Tab");
     }
 
     #[test]
@@ -543,6 +697,7 @@ mod tests {
         settings.graphics.resolution = Resolution::new(1920, 1080);
         settings.graphics.mode = WindowMode::Borderless;
         settings.general.show_fps = true;
+        settings.gameplay.show_enemy_ability_previews = false;
         settings.keybinds.bindings.insert(
             KeyAction::TogglePause,
             KeyBinding {
@@ -560,7 +715,62 @@ mod tests {
         assert_eq!(back.graphics.resolution.width, 1920);
         assert_eq!(back.graphics.mode, WindowMode::Borderless);
         assert!(back.general.show_fps);
+        assert!(!back.gameplay.show_enemy_ability_previews);
         assert_eq!(back.keybinds.get(KeyAction::TogglePause).key, KeyCode::KeyP);
+    }
+
+    #[test]
+    fn missing_gameplay_section_defaults_enemy_previews_on() {
+        let settings = parse_settings("{}").expect("empty object is valid");
+        assert!(settings.gameplay.show_enemy_ability_previews);
+        assert!(settings.toggle(SettingToggle::ShowEnemyAbilityPreviews));
+    }
+
+    #[test]
+    fn set_toggle_writes_enemy_ability_previews() {
+        let mut settings = GameSettings::default();
+        assert!(settings.toggle(SettingToggle::ShowEnemyAbilityPreviews));
+        settings.set_toggle(SettingToggle::ShowEnemyAbilityPreviews, false);
+        assert!(!settings.toggle(SettingToggle::ShowEnemyAbilityPreviews));
+        assert!(!settings.gameplay.show_enemy_ability_previews);
+    }
+
+    #[test]
+    fn set_choice_rejects_unknown_window_mode() {
+        let mut settings = GameSettings::default();
+        let before = settings.graphics.mode;
+        assert!(!settings.set_choice(SettingChoice::WindowMode, "ultrawide"));
+        assert_eq!(settings.graphics.mode, before);
+    }
+
+    #[test]
+    fn set_choice_applies_resolution_and_scale() {
+        let mut settings = GameSettings::default();
+        assert!(settings.set_choice(SettingChoice::Resolution, "1920x1080"));
+        assert_eq!(settings.graphics.resolution, Resolution::new(1920, 1080));
+        assert!(settings.set_choice(SettingChoice::InterfaceScale, "1.5"));
+        assert!((settings.general.interface_scale - 1.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_label_handles_standard_and_garbage() {
+        assert_eq!(
+            Resolution::parse_label("1920x1080"),
+            Some(Resolution::new(1920, 1080))
+        );
+        assert_eq!(Resolution::parse_label("hd"), None);
+        assert_eq!(Resolution::parse_label("1920"), None);
+        assert_eq!(Resolution::parse_label("1920x"), None);
+    }
+
+    #[test]
+    fn partial_eq_detects_gameplay_toggle() {
+        let a = GameSettings::default();
+        let mut b = GameSettings::default();
+        b.set_toggle(SettingToggle::ShowEnemyAbilityPreviews, false);
+        assert_ne!(a, b);
+        b.set_toggle(SettingToggle::ShowEnemyAbilityPreviews, true);
+        assert_eq!(a, b);
     }
 
     #[test]

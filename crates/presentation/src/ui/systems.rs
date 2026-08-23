@@ -22,6 +22,9 @@ use crate::ui::chat::ChatInput;
 use crate::ui::inventory::components::SplitAmountField;
 use crate::ui::login::{AuthPage, EmailInput, PasswordInput};
 use crate::ui::main_menu::PlayerNameInput;
+use crate::ui::settings::layout::SettingsTabButton;
+use crate::ui::settings::widgets::{DropdownHeader, DropdownOption, KeyCapture};
+use crate::ui::settings::{SettingsReturn, SettingsSession};
 use crate::ui::text_input::{
     unfocus_all, TextInput, TextInputErrorText, TextInputImages, TextInputValueText,
 };
@@ -126,10 +129,15 @@ pub fn update_button_actions(
     mut next_pause: ResMut<NextState<PauseOverlay>>,
     mut connection_request: ResMut<ConnectionRequest>,
     mut auth_page: ResMut<AuthPage>,
+    screen: Res<State<Screen>>,
+    pause: Option<Res<State<PauseOverlay>>>,
+    mut settings_session: ResMut<SettingsSession>,
     selected: Option<Res<SelectedRosterEntry>>,
     buttons: Query<(&Interaction, &UiButton), Changed<Interaction>>,
     mut name_input: Query<&mut TextInput, With<PlayerNameInput>>,
 ) {
+    let paused = pause.is_some_and(|pause| *pause.get() == PauseOverlay::On);
+    let from_pause_menu = *screen.get() == Screen::InGame && paused;
     for (interaction, button) in buttons.iter() {
         if *interaction != Interaction::Pressed {
             continue;
@@ -174,12 +182,23 @@ pub fn update_button_actions(
                 *auth_page = AuthPage::Login;
             }
             UiButtonAction::OpenSettings => {
-                next_screen.set(Screen::Settings);
+                if from_pause_menu {
+                    settings_session.open_from(SettingsReturn::Pause);
+                } else {
+                    settings_session.open_from(SettingsReturn::Menu);
+                    next_screen.set(Screen::Settings);
+                }
             }
             UiButtonAction::BackToMenu => {
-                next_screen.set(Screen::MainMenu);
+                let from_pause =
+                    settings_session.open && settings_session.return_to == SettingsReturn::Pause;
+                settings_session.close();
+                if !from_pause {
+                    next_screen.set(Screen::MainMenu);
+                }
             }
             UiButtonAction::ReturnToMainMenu => {
+                settings_session.close();
                 // Previously sent `Disconnect`, which the SpacetimeDB path
                 // treats as a no-op — the character stayed marked online
                 // server-side even though the screen had already left it.
@@ -189,6 +208,7 @@ pub fn update_button_actions(
                 next_screen.set(Screen::MainMenu);
             }
             UiButtonAction::Logout => {
+                settings_session.close();
                 // Pause menu's "Leave Character": returns to character
                 // select, stays authenticated as the same account.
                 connection_request.0 = Some(ConnectionIntent::LeaveCharacter);
@@ -286,7 +306,16 @@ pub fn update_auth_button_actions(
 /// Matches any node with [`UiButtonImages`] so Close / Equip / Respawn (which
 /// are not [`UiButton`]) still swap the ornate bar on hover/press.
 pub fn update_button_visuals(
-    mut query: Query<(&Interaction, &mut ImageNode, &UiButtonImages), Changed<Interaction>>,
+    mut query: Query<
+        (&Interaction, &mut ImageNode, &UiButtonImages),
+        (
+            Changed<Interaction>,
+            Without<SettingsTabButton>,
+            Without<DropdownHeader>,
+            Without<DropdownOption>,
+            Without<KeyCapture>,
+        ),
+    >,
 ) {
     for (interaction, mut image, button_images) in query.iter_mut() {
         apply_button_image(*interaction, &mut image, button_images);
@@ -550,6 +579,7 @@ mod tests {
         init_screen_states(&mut app);
         app.init_resource::<ConnectionRequest>();
         app.init_resource::<AuthPage>();
+        app.init_resource::<crate::ui::settings::SettingsSession>();
         app.insert_resource(GameSettingsResource(GameSettings::default()));
 
         // Spawn a button with Logout action
@@ -614,6 +644,7 @@ mod tests {
         init_screen_states(&mut app);
         app.init_resource::<ConnectionRequest>();
         app.init_resource::<AuthPage>();
+        app.init_resource::<crate::ui::settings::SettingsSession>();
         app.init_resource::<SelectedRosterEntry>();
         app.add_systems(Update, update_button_actions);
         app
@@ -657,6 +688,70 @@ mod tests {
                 .is_some_and(|input| input.error.is_none()),
             "existing roster names must not run the 3-char create-name check"
         );
+    }
+
+    #[test]
+    fn opening_settings_from_pause_keeps_the_world_loaded() {
+        use crate::ui::button::{UiButton, UiButtonAction};
+        use crate::ui::settings::{SettingsReturn, SettingsSession};
+
+        let mut app = App::new();
+        init_screen_states(&mut app);
+        app.init_resource::<ConnectionRequest>();
+        app.init_resource::<AuthPage>();
+        app.init_resource::<SettingsSession>();
+        app.insert_resource(GameSettingsResource(GameSettings::default()));
+        app.insert_state(Screen::InGame);
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<PauseOverlay>>()
+            .set(PauseOverlay::On);
+        app.update();
+
+        app.world_mut().spawn((
+            UiButton {
+                action: UiButtonAction::OpenSettings,
+            },
+            Interaction::Pressed,
+        ));
+        app.add_systems(Update, update_button_actions);
+        app.update();
+
+        assert_eq!(current_screen(&app), Screen::InGame);
+        assert_eq!(current_pause(&app), Some(PauseOverlay::On));
+        let session = app.world().resource::<SettingsSession>();
+        assert!(session.open);
+        assert_eq!(session.return_to, SettingsReturn::Pause);
+    }
+
+    #[test]
+    fn back_from_menu_settings_returns_to_main_menu() {
+        use crate::ui::button::{UiButton, UiButtonAction};
+        use crate::ui::settings::{SettingsReturn, SettingsSession};
+
+        let mut app = App::new();
+        init_screen_states(&mut app);
+        app.init_resource::<ConnectionRequest>();
+        app.init_resource::<AuthPage>();
+        app.init_resource::<SettingsSession>();
+        app.insert_resource(GameSettingsResource(GameSettings::default()));
+        app.insert_state(Screen::Settings);
+        app.world_mut()
+            .resource_mut::<SettingsSession>()
+            .open_from(SettingsReturn::Menu);
+
+        app.world_mut().spawn((
+            UiButton {
+                action: UiButtonAction::BackToMenu,
+            },
+            Interaction::Pressed,
+        ));
+        app.add_systems(Update, update_button_actions);
+        app.update();
+        app.update();
+
+        assert_eq!(current_screen(&app), Screen::MainMenu);
+        assert!(!app.world().resource::<SettingsSession>().open);
     }
 
     #[test]

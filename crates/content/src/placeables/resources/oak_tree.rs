@@ -17,6 +17,7 @@ use crate::placeables::resource;
     regen_interval_seconds = 600.0,
     regen_amount = 10,
     interact_range = 6.0,
+    bonus_tools = [Axe],
 )]
 pub struct OakTreeResource;
 
@@ -33,6 +34,10 @@ mod tests {
         assert_eq!(config.max_pieces, 50);
         assert_eq!(config.yield_item.as_str(), "wood");
         assert_eq!(config.yield_amount, 1);
+        assert_eq!(
+            config.bonus_tools,
+            vec![crate::items::GatheringToolKind::Axe]
+        );
         let mut registry = PlaceableRegistry::default();
         register(&mut registry);
         assert!(registry.resources.contains_key(&def.id()));

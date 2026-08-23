@@ -7,9 +7,11 @@
 //! # Cast behavior by [`AbilityCastMode`]
 //!
 //! Instant, CastTime and Channeling share the same input: press opens an aim
-//! window ([`AbilityAim`]); release sends `cast_weapon`. Instant fires on
-//! that call. CastTime winds up and auto-fires. Channeling ticks until
-//! `cast_time` or a movement interrupt.
+//! window ([`AbilityAim`]); release sends `cast_weapon` and plants leftover
+//! movement. Instant fires on that call. CastTime winds up and auto-fires.
+//! Channeling ticks until `cast_time` or a movement interrupt — cooldown
+//! starts on release, so a later click cuts the channel short but still
+//! spends the cooldown.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -19,12 +21,11 @@ use bevymmo_client::stdb::{commands as stdb_commands, StdbConnection};
 use bevymmo_client::targeting::CurrentTarget;
 use bevymmo_client::user_settings::{GameSettingsResource, KeyAction};
 use bevymmo_gameplay::abilities::{
-    movement_lock_for_ability, resolve_active_ability, weapon_cast_intent, AbilityAim, AbilityId,
-    AbilitySlot, ArcBaseAbility, BaseAbilityRegistry,
+    resolve_active_ability, weapon_cast_intent, AbilityAim, AbilityId, AbilitySlot, ArcBaseAbility,
+    BaseAbilityRegistry,
 };
 use bevymmo_gameplay::items::components::Equipment;
 use bevymmo_gameplay::items::registry::ItemRegistry;
-use bevymmo_gameplay::movement::movement_intent_allowed;
 use bevymmo_gameplay::stats::components::VitalStats;
 use bevymmo_gameplay::stats::formulas::can_afford_mana;
 use bevymmo_network::network::protocol::{LookDirection, NetworkEntityId, Position};
@@ -258,7 +259,6 @@ pub fn cast_abilities_on_key(
             &mut move_target,
             &mut movement_freeze,
             time.elapsed_secs(),
-            movement_lock_for_ability(ability.cast_mode()),
             ability.cast_mode(),
         );
 
@@ -345,38 +345,20 @@ fn active_ability(
     Some((ability_id.clone(), ability))
 }
 
-/// Whether the given cast mode stops local movement prediction.
-///
-/// Mirrors the server's logic so the client freezes instantly instead of
-/// waiting for the next `SpellCastProgress` (~100ms + RTT).
-fn stops_movement_for_ability(cast_mode: bevymmo_gameplay::abilities::AbilityCastMode) -> bool {
-    use bevymmo_gameplay::abilities::{AbilityCastMode, ChannelMovementPolicy};
-    match cast_mode {
-        AbilityCastMode::Instant => false,
-        AbilityCastMode::CastTime => true,
-        AbilityCastMode::Channeling {
-            movement_policy, ..
-        } => movement_policy == ChannelMovementPolicy::InterruptOnMove,
-    }
-}
-
-/// Drop the local dest immediately, and root prediction when the ability
-/// will freeze the character. CastTime and a channel that interrupts on
-/// move only clear the dest — walking is still allowed so a later click
-/// can cancel them.
+/// Drop leftover dest and ignore the last server dest until it replicates
+/// as cleared. A later right-click still walks (and interrupts) because
+/// freeze only suppresses stale dest, not a new click.
 fn root_local_movement(
     move_target: &mut bevymmo_client::movement::MoveTarget,
     freeze: &mut LocalMovementFreeze,
     now: f32,
-    lock: bevymmo_gameplay::movement::MovementLock,
     cast_mode: bevymmo_gameplay::abilities::AbilityCastMode,
 ) {
-    if !movement_intent_allowed(lock, false) {
-        move_target.0 = None;
-        freeze.arm(now);
-    } else if stops_movement_for_ability(cast_mode) {
-        move_target.0 = None;
+    if !cast_mode.holds_still() {
+        return;
     }
+    move_target.0 = None;
+    freeze.arm(now);
 }
 
 #[cfg(test)]
@@ -427,14 +409,13 @@ mod tests {
     }
 
     #[test]
-    fn rooted_charge_arms_the_optimistic_freeze() {
+    fn instant_cast_does_not_plant() {
         let mut dest = bevymmo_client::movement::MoveTarget(Some(Vec3::X));
         let mut freeze = LocalMovementFreeze::default();
         root_local_movement(
             &mut dest,
             &mut freeze,
             1.0,
-            bevymmo_gameplay::movement::MovementLock::None,
             bevymmo_gameplay::abilities::AbilityCastMode::Instant,
         );
         assert_eq!(dest.0, Some(Vec3::X));
@@ -442,32 +423,34 @@ mod tests {
     }
 
     #[test]
-    fn cast_time_clears_dest_without_rooting() {
+    fn cast_time_plants_leftover_dest() {
         let mut dest = bevymmo_client::movement::MoveTarget(Some(Vec3::X));
         let mut freeze = LocalMovementFreeze::default();
         root_local_movement(
             &mut dest,
             &mut freeze,
             1.0,
-            bevymmo_gameplay::movement::MovementLock::CastTime,
             bevymmo_gameplay::abilities::AbilityCastMode::CastTime,
         );
         assert!(dest.0.is_none());
-        assert!(!freeze.is_active(1.0));
+        assert!(freeze.is_active(1.0));
     }
 
     #[test]
-    fn instant_cast_does_not_root_prediction() {
+    fn channeling_plants_leftover_dest() {
         let mut dest = bevymmo_client::movement::MoveTarget(Some(Vec3::X));
         let mut freeze = LocalMovementFreeze::default();
         root_local_movement(
             &mut dest,
             &mut freeze,
             1.0,
-            bevymmo_gameplay::movement::MovementLock::None,
-            bevymmo_gameplay::abilities::AbilityCastMode::Instant,
+            bevymmo_gameplay::abilities::AbilityCastMode::Channeling {
+                tick_interval_seconds: 0.2,
+                movement_policy:
+                    bevymmo_gameplay::abilities::ChannelMovementPolicy::InterruptOnMove,
+            },
         );
-        assert_eq!(dest.0, Some(Vec3::X));
-        assert!(!freeze.is_active(1.0));
+        assert!(dest.0.is_none());
+        assert!(freeze.is_active(1.0));
     }
 }

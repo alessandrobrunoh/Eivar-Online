@@ -131,6 +131,16 @@ impl AbilityCastMode {
         matches!(self, AbilityCastMode::Channeling { .. })
     }
 
+    /// Whether leftover walking should be dropped when this mode begins.
+    ///
+    /// Instant fires on the same tick and can be used on the move. CastTime and
+    /// Channeling open a persisted wind-up: leftover chase would cancel
+    /// CastTime (always) and InterruptOnMove channels, so NPCs plant until the
+    /// ability finishes.
+    pub fn holds_still(&self) -> bool {
+        !self.is_instant()
+    }
+
     /// Total duration for the progress bar (cast_time or max channel time).
     /// For channeling this is caller-defined; for CastTime it is the ability's cast_time.
     pub fn required_seconds(&self, cast_time: f32) -> f32 {
@@ -690,6 +700,7 @@ mod tests {
         let ability = InstantAbility;
         assert_eq!(ability.cast_mode(), AbilityCastMode::Instant);
         assert!(ability.cast_mode().is_instant());
+        assert!(!ability.cast_mode().holds_still());
     }
 
     #[test]
@@ -697,6 +708,23 @@ mod tests {
         let ability = CastTimeAbility;
         assert!(matches!(ability.cast_mode(), AbilityCastMode::CastTime));
         assert!(!ability.cast_mode().is_instant());
+        assert!(ability.cast_mode().holds_still());
+    }
+
+    #[test]
+    fn wind_up_and_channel_hold_still() {
+        assert!(!AbilityCastMode::Instant.holds_still());
+        assert!(AbilityCastMode::CastTime.holds_still());
+        assert!(AbilityCastMode::Channeling {
+            tick_interval_seconds: 0.2,
+            movement_policy: ChannelMovementPolicy::InterruptOnMove,
+        }
+        .holds_still());
+        assert!(AbilityCastMode::Channeling {
+            tick_interval_seconds: 0.2,
+            movement_policy: ChannelMovementPolicy::AllowMovement,
+        }
+        .holds_still());
     }
 
     #[test]

@@ -24,11 +24,14 @@ impl Plugin for CraftingUiPlugin {
     }
 }
 
-/// `Some` when this NPC kind is a crafter for that item category.
-pub fn crafter_category(kind_id: &str, placeables: &PlaceableRegistry) -> Option<ItemCategory> {
+/// `Some` when this NPC kind is a crafter for those item categories.
+pub fn crafter_categories(
+    kind_id: &str,
+    placeables: &PlaceableRegistry,
+) -> Option<Vec<ItemCategory>> {
     let definition = placeables.npcs.get(&KindId::new(kind_id.to_string()))?;
     match definition.interaction() {
-        InteractionKind::Craft { category } => Some(category),
+        InteractionKind::Craft { categories } => Some(categories),
         _ => None,
     }
 }
@@ -43,10 +46,10 @@ mod tests {
         let mut registry = PlaceableRegistry::default();
         register_all(&mut registry);
         assert_eq!(
-            crafter_category("npc_weapon_crafter", &registry),
-            Some(ItemCategory::Weapon)
+            crafter_categories("npc_weapon_crafter", &registry),
+            Some(vec![ItemCategory::Weapon, ItemCategory::Tool])
         );
-        assert_eq!(crafter_category("npc_greeter", &registry), None);
-        assert_eq!(crafter_category("npc_market_1", &registry), None);
+        assert_eq!(crafter_categories("npc_greeter", &registry), None);
+        assert_eq!(crafter_categories("npc_market_1", &registry), None);
     }
 }

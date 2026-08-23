@@ -6,8 +6,9 @@
 pub mod components;
 pub mod formulas;
 
+pub use crate::items::GatheringToolKind;
 pub use components::{ActiveGather, Harvestable};
 pub use formulas::{
-    bonus_extra_pieces, channel_duration, in_interact_range, regen_catchup, resolve_gather,
-    GatherAttempt, GatherOutcome, DEFAULT_MIN_CHANNEL_SECONDS,
+    bonus_extra_pieces, channel_duration, gathering_tool_bonuses, in_interact_range, regen_catchup,
+    resolve_gather, GatherAttempt, GatherOutcome, DEFAULT_MIN_CHANNEL_SECONDS,
 };

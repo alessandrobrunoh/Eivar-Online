@@ -127,6 +127,7 @@ const fn category_label(category: ItemCategory) -> &'static str {
         ItemCategory::Material => "Material",
         ItemCategory::Quest => "Quest",
         ItemCategory::Accessory => "Accessory",
+        ItemCategory::Tool => "Tool",
     }
 }
 
@@ -605,5 +606,16 @@ mod tests {
             0.0,
         );
         assert_eq!(line, "Accessory   |   Epic   |   Helmet");
+    }
+
+    #[test]
+    fn gathering_tool_meta_line_shows_tool_and_weapon_slot() {
+        let line = meta_line(
+            ItemCategory::Tool,
+            ItemRarity::Common,
+            Some(EquipSlot::Weapon),
+            0.0,
+        );
+        assert_eq!(line, "Tool   |   Common   |   Weapon");
     }
 }

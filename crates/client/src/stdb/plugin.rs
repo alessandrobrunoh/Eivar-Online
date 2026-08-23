@@ -1847,6 +1847,7 @@ fn apply_aoe_region(commands: &mut Commands, map: &mut StdbEntityMap, row: &AoeR
             super::module_bindings::AoeShapeRow::Circle => None,
         },
         direction: to_vec3(&row.direction),
+        caster: row.caster,
     };
     let position = Position(to_vec3(&row.center));
     match map.aoes.get(&row.id).copied() {
@@ -2426,17 +2427,14 @@ fn predict_and_reconcile(
 
     for (mut position, mut look, authoritative, local, lock, cc) in &mut query {
         let dest = if local.is_some() {
-            if local_frozen {
-                None
-            } else {
-                predicted_move_dest(
-                    pending_move.0,
-                    authoritative.move_target,
-                    lock.map(|lock| lock.0).unwrap_or(MovementLock::None),
-                    right_mouse_held,
-                    cc.is_some_and(|state| state.blocks_movement()),
-                )
-            }
+            predicted_move_dest(
+                pending_move.0,
+                authoritative.move_target,
+                lock.map(|lock| lock.0).unwrap_or(MovementLock::None),
+                right_mouse_held,
+                cc.is_some_and(|state| state.blocks_movement()),
+                local_frozen,
+            )
         } else {
             authoritative.move_target
         };
@@ -2790,6 +2788,7 @@ mod tests {
                 armor: 10.0,
                 movement_speed: 0.15,
                 attack_power: 12.0,
+                threat_generation: 1.0,
                 gathering_speed: 0.0,
                 gathering_bonus: 0.0,
             },

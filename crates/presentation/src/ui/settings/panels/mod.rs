@@ -10,6 +10,7 @@
 
 use bevy::prelude::Component;
 
+pub mod gameplay;
 pub mod general;
 pub mod graphics;
 pub mod keybinds;
@@ -20,6 +21,7 @@ pub mod keybinds;
 pub enum SettingsPanel {
     General,
     Graphics,
+    Gameplay,
     Keybinds,
 }
 
@@ -29,6 +31,7 @@ impl SettingsPanel {
             (self, tab),
             (SettingsPanel::General, super::state::SettingsTab::General)
                 | (SettingsPanel::Graphics, super::state::SettingsTab::Graphics)
+                | (SettingsPanel::Gameplay, super::state::SettingsTab::Gameplay)
                 | (SettingsPanel::Keybinds, super::state::SettingsTab::Keybinds)
         )
     }

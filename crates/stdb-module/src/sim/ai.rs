@@ -978,8 +978,9 @@ fn living_players_near(
 ///   had; this is what stops the AI handing it a fresh one every tick.
 /// - It is mid-cast. `sim::spells::advance_casts` interrupts a cast-time spell
 ///   whose caster moved, so a dragon that kept walking into melee would cancel
-///   its own searing breath on the tick after it started it. Bevy had the same
-///   two systems and the same collision; there the boss simply lost the cast.
+///   its own searing breath on the tick after it started it. Opening the cast
+///   also plants via `request_catalog_ability` (clears leftover chase); this
+///   gate is what stops the AI handing a fresh dest every later tick.
 fn gate_movement(
     ctx: &ReducerContext,
     entity_id: u64,

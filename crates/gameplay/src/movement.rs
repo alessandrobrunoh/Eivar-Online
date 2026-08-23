@@ -84,6 +84,10 @@ pub fn movement_intent_allowed(lock: MovementLock, cc_blocks: bool) -> bool {
 /// A crowd-control block returns `None` immediately, even when the server
 /// dest has not cleared yet.
 ///
+/// `planted` is true on the frames after a CastTime / Channeling start,
+/// before leftover dest has replicated as cleared. A new right-click still
+/// walks so the player can interrupt; leftover dest is ignored.
+///
 /// While unlocked and the player is click-moving, prefer the pending click.
 /// Otherwise follow the server so a cancelled dest is not resumed.
 pub fn predicted_move_dest(
@@ -92,12 +96,16 @@ pub fn predicted_move_dest(
     lock: MovementLock,
     right_mouse_held: bool,
     cc_blocks: bool,
+    planted: bool,
 ) -> Option<Vec3> {
     if !movement_intent_allowed(lock, cc_blocks) {
         return None;
     }
+    if planted && !right_mouse_held {
+        return None;
+    }
     if right_mouse_held {
-        pending.or(authoritative)
+        pending.or(if planted { None } else { authoritative })
     } else {
         authoritative
     }
@@ -159,14 +167,14 @@ pub fn reconcile_offset(
 ///
 /// Instant casts while walking must not: the next movement tick (and the
 /// client's predicted look) would immediately overwrite it, which reads as
-/// a twitch toward the spell and back onto the path. Charge is rooted, so
-/// it always faces. CastTime stops the leftover dest then faces, even
-/// though a later click can walk and interrupt.
+/// a twitch toward the spell and back onto the path. CastTime and Channeling
+/// stop leftover dest then face, even though a later click can walk and
+/// interrupt.
 pub fn should_face_cast_target(moving: bool, lock: MovementLock) -> bool {
     if !moving {
         return true;
     }
-    matches!(lock, MovementLock::CastTime)
+    matches!(lock, MovementLock::CastTime | MovementLock::Channel)
 }
 
 /// Horizontal facing implied by moving from `position` to `target`.
@@ -803,7 +811,7 @@ mod tests {
     fn after_cast_a_stale_click_is_not_resumed() {
         let click = Some(Vec3::new(10.0, 0.0, 0.0));
         assert_eq!(
-            predicted_move_dest(click, None, MovementLock::None, false, false),
+            predicted_move_dest(click, None, MovementLock::None, false, false, false),
             None
         );
     }
@@ -812,7 +820,7 @@ mod tests {
     fn held_right_mouse_still_steers_when_unlocked() {
         let click = Some(Vec3::new(10.0, 0.0, 0.0));
         assert_eq!(
-            predicted_move_dest(click, None, MovementLock::None, true, false),
+            predicted_move_dest(click, None, MovementLock::None, true, false, false),
             click
         );
     }
@@ -821,7 +829,7 @@ mod tests {
     fn unlocked_follows_the_server_dest() {
         let server = Some(Vec3::new(3.0, 0.0, 1.0));
         assert_eq!(
-            predicted_move_dest(None, server, MovementLock::None, false, false),
+            predicted_move_dest(None, server, MovementLock::None, false, false, false),
             server
         );
     }
@@ -831,7 +839,7 @@ mod tests {
         let click = Some(Vec3::new(10.0, 0.0, 0.0));
         let server = Some(Vec3::new(4.0, 0.0, 1.0));
         assert_eq!(
-            predicted_move_dest(click, server, MovementLock::None, true, true),
+            predicted_move_dest(click, server, MovementLock::None, true, true, false),
             None
         );
     }
@@ -841,7 +849,34 @@ mod tests {
         let click = Some(Vec3::new(10.0, 0.0, 0.0));
         let server = Some(Vec3::new(4.0, 0.0, 1.0));
         assert_eq!(
-            predicted_move_dest(click, server, MovementLock::CastTime, true, false),
+            predicted_move_dest(click, server, MovementLock::CastTime, true, false, true),
+            click
+        );
+    }
+
+    #[test]
+    fn planted_wind_up_ignores_leftover_dest() {
+        let server = Some(Vec3::new(4.0, 0.0, 1.0));
+        assert_eq!(
+            predicted_move_dest(None, server, MovementLock::CastTime, false, false, true),
+            None
+        );
+        assert_eq!(
+            predicted_move_dest(None, server, MovementLock::Channel, false, false, true),
+            None
+        );
+    }
+
+    #[test]
+    fn planted_wind_up_does_not_fall_back_to_leftover_dest_on_click() {
+        let click = Some(Vec3::new(10.0, 0.0, 0.0));
+        let server = Some(Vec3::new(4.0, 0.0, 1.0));
+        assert_eq!(
+            predicted_move_dest(None, server, MovementLock::Channel, true, false, true),
+            None
+        );
+        assert_eq!(
+            predicted_move_dest(click, server, MovementLock::Channel, true, false, true),
             click
         );
     }
@@ -850,7 +885,7 @@ mod tests {
     fn channel_lock_still_follows_the_server_dest() {
         let server = Some(Vec3::new(4.0, 0.0, 1.0));
         assert_eq!(
-            predicted_move_dest(None, server, MovementLock::Channel, false, false),
+            predicted_move_dest(None, server, MovementLock::Channel, false, false, false),
             server
         );
     }
@@ -860,11 +895,11 @@ mod tests {
         let click = Some(Vec3::new(10.0, 0.0, 0.0));
         let server = Some(Vec3::new(4.0, 0.0, 1.0));
         assert_eq!(
-            predicted_move_dest(click, server, MovementLock::None, true, true),
+            predicted_move_dest(click, server, MovementLock::None, true, true, false),
             None
         );
         assert_eq!(
-            predicted_move_dest(click, server, MovementLock::Channel, true, true),
+            predicted_move_dest(click, server, MovementLock::Channel, true, true, false),
             None
         );
     }
@@ -935,12 +970,12 @@ mod tests {
     #[test]
     fn instant_while_moving_does_not_steal_walk_facing() {
         assert!(!should_face_cast_target(true, MovementLock::None));
-        assert!(!should_face_cast_target(true, MovementLock::Channel));
     }
 
     #[test]
     fn rooted_or_standing_casts_still_face_the_target() {
         assert!(should_face_cast_target(true, MovementLock::CastTime));
+        assert!(should_face_cast_target(true, MovementLock::Channel));
         assert!(should_face_cast_target(false, MovementLock::None));
     }
 }

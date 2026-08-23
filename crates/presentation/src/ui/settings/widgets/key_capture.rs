@@ -11,7 +11,9 @@ use bevy::ecs::component::Component;
 use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
-use crate::ui::text::spawn_text;
+use crate::ui::button::{
+    apply_button_image, queue_bar_images, sliced_bar_image, BarButtonKind, UiButtonImages,
+};
 use crate::ui::theme::UiTheme;
 
 use super::super::state::{KeyAction, KeyBinding};
@@ -33,6 +35,10 @@ pub struct KeyCaptureLabel;
 #[derive(Component)]
 pub struct KeyCaptureDisplay;
 
+/// Binding label on the right of the row (`Q`, `Esc`, `Press a key…`).
+#[derive(Component)]
+pub struct KeyCaptureValue;
+
 /// Event emitted when the user finishes capturing a new binding.
 #[derive(Message, Clone, Debug)]
 pub struct KeyBindingChanged {
@@ -50,45 +56,20 @@ pub fn spawn_key_capture(
     theme: &UiTheme,
 ) -> Entity {
     let row = commands
-        .spawn(Node {
-            width: Val::Px(420.0),
-            height: Val::Px(44.0),
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::SpaceBetween,
-            padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
-            ..default()
-        })
-        .id();
-    commands.entity(parent).add_child(row);
-
-    let label_entity = commands
-        .spawn((
-            Text::new(action.label().to_string()),
-            TextFont {
-                font_size: FontSize::Px(theme.input_font_size),
-                ..default()
-            },
-            TextColor(theme.text_color),
-            KeyCaptureLabel,
-        ))
-        .id();
-    commands.entity(row).add_child(label_entity);
-
-    let button = commands
         .spawn((
             Button,
             Node {
-                width: Val::Px(160.0),
-                height: Val::Px(36.0),
-                justify_content: JustifyContent::Center,
+                width: Val::Percent(100.0),
+                height: Val::Px(44.0),
+                flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,
-                padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
-                border: UiRect::all(Val::Px(2.0)),
+                justify_content: JustifyContent::SpaceBetween,
+                padding: UiRect::axes(Val::Px(28.0), Val::Px(6.0)),
+                flex_shrink: 0.0,
                 ..default()
             },
-            BackgroundColor(theme.input_bg),
-            BorderColor::all(theme.input_border),
+            sliced_bar_image(Handle::default()),
+            UiButtonImages::placeholder(),
             KeyCapture {
                 action,
                 binding,
@@ -97,16 +78,51 @@ pub fn spawn_key_capture(
             KeyCaptureDisplay,
         ))
         .id();
-    commands.entity(row).add_child(button);
+    commands.entity(parent).add_child(row);
+    queue_bar_images(commands, row, BarButtonKind::Neutral);
 
-    let value_text = spawn_text(
-        commands,
-        button,
-        binding.label(),
-        theme.input_font_size,
-        theme.text_color,
-    );
-    let _ = value_text;
+    let label_entity = commands
+        .spawn((
+            Text::new(action.label().to_string()),
+            TextFont {
+                font_size: FontSize::Px(theme.input_font_size),
+                ..default()
+            },
+            TextColor(theme.button_text_color),
+            KeyCaptureLabel,
+        ))
+        .id();
+    commands.entity(row).add_child(label_entity);
+
+    let value_text = commands
+        .spawn((
+            Text::new(binding.label()),
+            TextFont {
+                font_size: FontSize::Px(theme.input_font_size),
+                ..default()
+            },
+            TextColor(theme.muted_text_color),
+            KeyCaptureValue,
+        ))
+        .id();
+    commands.entity(row).add_child(value_text);
 
     row
+}
+
+/// Capturing stays on the active bar; otherwise hover follows the pointer.
+pub fn sync_key_capture_visuals(
+    mut captures: Query<
+        (&KeyCapture, &Interaction, &UiButtonImages, &mut ImageNode),
+        Or<(Changed<KeyCapture>, Changed<Interaction>)>,
+    >,
+) {
+    for (capture, interaction, images, mut image) in &mut captures {
+        let shown = if capture.capturing {
+            Interaction::Hovered
+        } else {
+            *interaction
+        };
+        apply_button_image(shown, &mut image, images);
+    }
 }

@@ -15,7 +15,7 @@ use spacetimedb::{ReducerContext, Table};
 
 use crate::reducers::items::{load_inventory, next_instance_id, store_inventory};
 use crate::reducers::parties::notify_character;
-use crate::tables::{craft_session, game_entity, npc, cast_state, CraftSession, EntityStateRow};
+use crate::tables::{cast_state, craft_session, game_entity, npc, CraftSession, EntityStateRow};
 
 const NPC_CRAFT_RANGE: f32 = 6.0;
 const INTERRUPTED_MESSAGE: &str = "crafting interrupted";
@@ -34,11 +34,13 @@ fn placeables() -> &'static PlaceableRegistry {
     })
 }
 
-pub(crate) fn npc_craft_category(kind_id: &str) -> Option<bevymmo_domain::items::definition::ItemCategory> {
+pub(crate) fn npc_craft_categories(
+    kind_id: &str,
+) -> Option<Vec<bevymmo_domain::items::definition::ItemCategory>> {
     let id = KindId::new(kind_id.to_string());
     let definition = placeables().npcs.get(&id)?;
     match definition.interaction() {
-        InteractionKind::Craft { category } => Some(category),
+        InteractionKind::Craft { categories } => Some(categories),
         _ => None,
     }
 }
@@ -119,7 +121,11 @@ fn advance_session(ctx: &ReducerContext, mut session: CraftSession, dt: f32) {
     complete_channel(ctx, session, crafter.owner_character_id);
 }
 
-fn interrupt(ctx: &ReducerContext, session: &CraftSession, character_id: Option<spacetimedb::Uuid>) {
+fn interrupt(
+    ctx: &ReducerContext,
+    session: &CraftSession,
+    character_id: Option<spacetimedb::Uuid>,
+) {
     if let Some(character_id) = character_id {
         notify_character(ctx, character_id, INTERRUPTED_MESSAGE.to_string());
     }
@@ -139,7 +145,7 @@ fn complete_channel(
         interrupt(ctx, &session, Some(character_id));
         return;
     };
-    let Some(category) = npc_craft_category(&npc_row.kind_id) else {
+    let Some(categories) = npc_craft_categories(&npc_row.kind_id) else {
         interrupt(ctx, &session, Some(character_id));
         return;
     };
@@ -151,7 +157,7 @@ fn complete_channel(
         interrupt(ctx, &session, Some(character_id));
         return;
     };
-    if item.config().category != category {
+    if !categories.contains(&item.config().category) {
         interrupt(ctx, &session, Some(character_id));
         return;
     }
@@ -162,13 +168,7 @@ fn complete_channel(
     };
     let stacks = Inventory::stacks_category(item.config().category);
     let output_id = ItemId::new(session.item_id.clone());
-    let plan = match preview_craft(
-        &inventory,
-        recipe,
-        &output_id,
-        stacks,
-        session.quantity,
-    ) {
+    let plan = match preview_craft(&inventory, recipe, &output_id, stacks, session.quantity) {
         Ok(plan) => plan,
         Err(error) => {
             notify_character(ctx, character_id, error.to_string());

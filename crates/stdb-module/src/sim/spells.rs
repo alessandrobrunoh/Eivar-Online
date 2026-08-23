@@ -632,6 +632,10 @@ pub fn fire_catalog_ability(
 ///
 /// Caller must have checked [`can_start_cast`]-equivalent (no existing
 /// `cast_state`, not silenced). Returns whether a cast started or fired.
+///
+/// CastTime and Channeling hold still ([`AbilityCastMode::holds_still`]): leftover
+/// chase is dropped so the next `sim::movement::step` does not walk the caster
+/// and have `advance_casts` cancel the wind-up. Instant keeps walking.
 pub fn request_catalog_ability(
     ctx: &ReducerContext,
     caster: &GameEntity,
@@ -675,6 +679,7 @@ pub fn request_catalog_ability(
                     target_position,
                 );
             }
+            plant_caster(ctx, caster.entity_id);
             ctx.db.cast_state().insert(CastState {
                 entity_id: caster.entity_id,
                 spell_id: ability_id_str.to_string(),
@@ -702,6 +707,7 @@ pub fn request_catalog_ability(
                 ability_id_str,
                 preview.params.cooldown,
             );
+            plant_caster(ctx, caster.entity_id);
             ctx.db.cast_state().insert(CastState {
                 entity_id: caster.entity_id,
                 spell_id: ability_id_str.to_string(),
@@ -722,6 +728,29 @@ pub fn request_catalog_ability(
             true
         }
     }
+}
+
+/// Drops leftover dest so a CastTime / Channeling wind-up is not cancelled
+/// by the next movement step. A later `move_to` is still allowed and
+/// interrupts in `advance_casts`.
+///
+/// Shared by player weapon/armor reducers and AI catalog casts.
+pub fn stop_movement(ctx: &ReducerContext, caster: GameEntity) -> GameEntity {
+    if caster.move_target.is_none() && caster.state != EntityStateRow::Moving {
+        return caster;
+    }
+    ctx.db.game_entity().entity_id().update(GameEntity {
+        move_target: None,
+        state: EntityStateRow::Idle,
+        ..caster
+    })
+}
+
+fn plant_caster(ctx: &ReducerContext, entity_id: u64) {
+    let Some(caster) = ctx.db.game_entity().entity_id().find(&entity_id) else {
+        return;
+    };
+    let _ = stop_movement(ctx, caster);
 }
 
 fn request_catalog_ability_instant(

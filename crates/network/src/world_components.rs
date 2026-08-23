@@ -55,6 +55,8 @@ pub struct AoeZone {
     /// `None` = circle. Degrees when the region is a frontal cone.
     pub cone_angle_deg: Option<f32>,
     pub direction: Vec3,
+    /// `game_entity.entity_id` of the caster. Used to hide hostile telegraphs.
+    pub caster: u64,
 }
 
 /// Marks a spell projectile so the renderer draws it as one rather than as a

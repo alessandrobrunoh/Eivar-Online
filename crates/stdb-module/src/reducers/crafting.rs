@@ -54,7 +54,7 @@ pub fn start_craft(
         .entity_id()
         .find(&npc_entity_id)
         .ok_or_else(|| "NPC not found".to_string())?;
-    let category = crafting::npc_craft_category(&npc_row.kind_id)
+    let categories = crafting::npc_craft_categories(&npc_row.kind_id)
         .ok_or_else(|| "that NPC does not craft".to_string())?;
 
     if !in_interact_range(
@@ -77,7 +77,7 @@ pub fn start_craft(
     let recipe = item
         .craft_recipe()
         .ok_or_else(|| format!("{item_id:?} is not craftable"))?;
-    if item.config().category != category {
+    if !categories.contains(&item.config().category) {
         return Err("that crafter does not make that item".to_string());
     }
 

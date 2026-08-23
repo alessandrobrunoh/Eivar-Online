@@ -149,6 +149,7 @@ struct ResourceAttributes {
     regen_interval_seconds: Option<f32>,
     regen_amount: Option<u32>,
     interact_range: f32,
+    bonus_tools: Vec<String>,
 }
 
 fn parse_resource_attrs(input: &str) -> ResourceAttributes {
@@ -162,6 +163,7 @@ fn parse_resource_attrs(input: &str) -> ResourceAttributes {
         regen_interval_seconds: None,
         regen_amount: None,
         interact_range: 2.5,
+        bonus_tools: Vec::new(),
     };
 
     for pair in split_top_level_commas(input) {
@@ -192,6 +194,7 @@ fn parse_resource_attrs(input: &str) -> ResourceAttributes {
                     attrs.interact_range = range;
                 }
             }
+            "bonus_tools" => attrs.bonus_tools = parse_ident_list(value),
             _ => {}
         }
     }
@@ -251,6 +254,14 @@ fn expand_resource(input: &DeriveInput, attrs: ResourceAttributes) -> Result<Tok
     let min_channel_seconds = attrs.min_channel_seconds;
     let yield_amount = attrs.yield_amount;
     let interact_range = attrs.interact_range;
+    let bonus_tools: Vec<TokenStream2> = attrs
+        .bonus_tools
+        .iter()
+        .map(|kind| {
+            let ident = Ident::new(kind, proc_macro2::Span::call_site());
+            quote! { crate::items::GatheringToolKind::#ident }
+        })
+        .collect();
 
     Ok(quote! {
         #input
@@ -298,6 +309,7 @@ fn expand_resource(input: &DeriveInput, attrs: ResourceAttributes) -> Result<Tok
                     regen_amount: #regen_amount,
                     interact_range: #interact_range,
                     required_item_id: None,
+                    bonus_tools: vec![#(#bonus_tools),*],
                 }
             }
         }
@@ -524,6 +536,23 @@ fn clean_string(s: &str) -> String {
     s.trim_matches('"').to_string()
 }
 
+/// Parses `[Axe]` / `[Axe, Hammer]` into variant names.
+fn parse_ident_list(value: &str) -> Vec<String> {
+    let inner = value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
+    if inner.is_empty() {
+        return Vec::new();
+    }
+    inner
+        .split(',')
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
 fn parse_triple_f32(s: &str) -> Option<(f32, f32, f32)> {
     // Parse "(1.0, 2.0, 3.0)"
     let inner = s.trim_matches('(').trim_matches(')');
@@ -743,7 +772,6 @@ impl Parse for EffectDef {
     }
 }
 
-
 /// Parsed `abilities(primary = [...], secondary = [...], ultimate = [...])`
 /// clause. Ogni slot deve offrire almeno una abilità; la selezione attiva vive
 /// sull'esemplare e può includere anche l'Ultimate.
@@ -952,12 +980,10 @@ impl CraftingDef {
             }
         }
         Ok(Self {
-            channel_seconds: channel_seconds.ok_or_else(|| {
-                content.error("crafting(...) requires `channel_seconds = ...`")
-            })?,
-            ingredients: ingredients.ok_or_else(|| {
-                content.error("crafting(...) requires `ingredients = [...]`")
-            })?,
+            channel_seconds: channel_seconds
+                .ok_or_else(|| content.error("crafting(...) requires `channel_seconds = ...`"))?,
+            ingredients: ingredients
+                .ok_or_else(|| content.error("crafting(...) requires `ingredients = [...]`"))?,
         })
     }
 }
@@ -977,6 +1003,7 @@ struct ItemDef {
     abilities: Option<AbilitiesDef>,
     rune_profile: Option<RuneProfileDef>,
     crafting: Option<CraftingDef>,
+    gathering_tool: Option<Ident>,
 }
 
 impl Parse for ItemDef {
@@ -994,6 +1021,7 @@ impl Parse for ItemDef {
         let mut abilities = None;
         let mut rune_profile = None;
         let mut crafting = None;
+        let mut gathering_tool = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -1021,6 +1049,7 @@ impl Parse for ItemDef {
                     "rarity" => rarity = Some(input.parse::<Ident>()?),
                     "slot" => slot = Some(input.parse::<Ident>()?),
                     "family" => family = Some(input.parse::<Ident>()?),
+                    "gathering_tool" => gathering_tool = Some(input.parse::<Ident>()?),
                     "tradable" => tradable = input.parse::<LitBool>()?.value(),
                     "icon" => icon = Some(input.parse::<LitStr>()?),
                     "effects" => {
@@ -1034,7 +1063,7 @@ impl Parse for ItemDef {
                             &key,
                             format!(
                                 "unknown key `{other}` in #[item(...)] (expected id, name, description, \
-                                 category, rarity, slot, family, tradable, icon, effects, \
+                                 category, rarity, slot, family, gathering_tool, tradable, icon, effects, \
                                  abilities, rune_profile, crafting)"
                             ),
                         ))
@@ -1061,7 +1090,7 @@ impl Parse for ItemDef {
             description,
             category: category.ok_or_else(|| {
                 input.error(
-                    "#[item(...)] requires `category = ...` (Weapon | Armor | Consumable | Material | Quest | Accessory)",
+                    "#[item(...)] requires `category = ...` (Weapon | Armor | Consumable | Material | Quest | Accessory | Tool)",
                 )
             })?,
             rarity: rarity.ok_or_else(|| {
@@ -1075,6 +1104,7 @@ impl Parse for ItemDef {
             abilities,
             rune_profile,
             crafting,
+            gathering_tool,
         })
     }
 }
@@ -1101,6 +1131,13 @@ impl ItemDef {
             quote! {
                 fn weapon_family(&self) -> Option<crate::items::WeaponFamilyId> {
                     Some(crate::items::WeaponFamilyId::new(#family_id))
+                }
+            }
+        });
+        let gathering_tool_method = self.gathering_tool.as_ref().map(|kind| {
+            quote! {
+                fn gathering_tool(&self) -> Option<crate::items::GatheringToolKind> {
+                    Some(crate::items::GatheringToolKind::#kind)
                 }
             }
         });
@@ -1211,6 +1248,7 @@ impl ItemDef {
                 }
 
                 #family_method
+                #gathering_tool_method
                 #ability_loadout_method
                 #rune_profile_method
                 #craft_recipe_method
@@ -3614,7 +3652,7 @@ enum NpcInteraction {
     Shop { inventory_id: String },
     Market { market_id: String },
     Dialogue { dialogue_tree_id: String },
-    Craft { category: String },
+    Craft { categories: Vec<String> },
 }
 
 struct NpcAttributes {
@@ -3645,7 +3683,7 @@ fn parse_npc_interaction(value: &str) -> Result<NpcInteraction, String> {
     let value = value.trim();
     let Some((kind, rest)) = value.split_once('(') else {
         return Err(format!(
-            "#[npc(...)] `interaction` must be shop(\"...\"), market(\"...\"), dialogue(\"...\"), or craft(Weapon), got `{value}`"
+            "#[npc(...)] `interaction` must be shop(\"...\"), market(\"...\"), dialogue(\"...\"), or craft(Weapon, Tool), got `{value}`"
         ));
     };
     let kind = kind.trim();
@@ -3668,14 +3706,33 @@ fn parse_npc_interaction(value: &str) -> Result<NpcInteraction, String> {
             dialogue_tree_id: id,
         }),
         "craft" => {
-            match id.as_str() {
-                "Weapon" | "Armor" | "Consumable" | "Material" | "Quest" | "Accessory" => {
-                    Ok(NpcInteraction::Craft { category: id })
-                }
-                other => Err(format!(
-                    "#[npc(...)] `craft(...)` expected an ItemCategory (Weapon | Armor | Consumable | Material | Quest | Accessory), got `{other}`"
-                )),
+            const ALLOWED: &[&str] = &[
+                "Weapon",
+                "Armor",
+                "Consumable",
+                "Material",
+                "Quest",
+                "Accessory",
+                "Tool",
+            ];
+            let categories: Vec<String> = id
+                .split(',')
+                .map(|part| part.trim().to_string())
+                .filter(|part| !part.is_empty())
+                .collect();
+            if categories.is_empty() {
+                return Err(
+                    "#[npc(...)] `craft(...)` requires at least one ItemCategory".to_string(),
+                );
             }
+            for category in &categories {
+                if !ALLOWED.contains(&category.as_str()) {
+                    return Err(format!(
+                        "#[npc(...)] `craft(...)` expected an ItemCategory (Weapon | Armor | Consumable | Material | Quest | Accessory | Tool), got `{category}`"
+                    ));
+                }
+            }
+            Ok(NpcInteraction::Craft { categories })
         }
         other => Err(format!(
             "#[npc(...)] unknown interaction `{other}` (expected shop, market, dialogue, craft)"
@@ -3740,11 +3797,14 @@ fn expand_npc(input: &DeriveInput, attrs: NpcAttributes) -> Result<TokenStream2,
                 dialogue_tree_id: #dialogue_tree_id.to_string(),
             }
         },
-        NpcInteraction::Craft { category } => {
-            let category_ident = Ident::new(category, proc_macro2::Span::call_site());
+        NpcInteraction::Craft { categories } => {
+            let category_idents: Vec<Ident> = categories
+                .iter()
+                .map(|category| Ident::new(category, proc_macro2::Span::call_site()))
+                .collect();
             quote! {
                 crate::placeables::InteractionKind::Craft {
-                    category: crate::items::ItemCategory::#category_ident,
+                    categories: vec![#(crate::items::ItemCategory::#category_idents),*],
                 }
             }
         }

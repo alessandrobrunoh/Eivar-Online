@@ -13,6 +13,7 @@ use crate::abilities::{AbilityBlueprint, AbilityLoadout, BaseAbility, RuneProfil
 
 use super::components::EquipSlot;
 use super::effects::ItemEffect;
+use super::gathering_tool::GatheringToolKind;
 use super::recipe::CraftRecipe;
 use super::registry::ItemId;
 use super::weapon_family::WeaponFamilyId;
@@ -28,6 +29,9 @@ pub enum ItemCategory {
     Quest,
     /// Worn utility items that are neither weapon nor armor (bag, cape, mount).
     Accessory,
+    /// Equippable gathering tools (axe, hammer). Occupy a body slot but are
+    /// not combat weapons.
+    Tool,
 }
 
 /// Rarity, purely cosmetic for now (drives slot border color in the UI).
@@ -146,6 +150,12 @@ pub trait Item: Send + Sync + 'static {
     fn craft_recipe(&self) -> Option<&CraftRecipe> {
         None
     }
+
+    /// Gathering-tool subcategory. `None` (the default) means this item does
+    /// not grant resource-scoped gathering bonuses.
+    fn gathering_tool(&self) -> Option<GatheringToolKind> {
+        None
+    }
 }
 
 /// Dyn-compatible alias used when storing items inside the registry.
@@ -234,6 +244,14 @@ mod tests {
             config: sample_config(),
         };
         assert!(item.craft_recipe().is_none());
+    }
+
+    #[test]
+    fn gathering_tool_defaults_to_none() {
+        let item = Dummy {
+            config: sample_config(),
+        };
+        assert!(item.gathering_tool().is_none());
     }
 
     #[test]
