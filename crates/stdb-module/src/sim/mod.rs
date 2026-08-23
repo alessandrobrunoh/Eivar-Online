@@ -10,6 +10,7 @@ pub mod combat;
 pub mod crafting;
 pub mod crowd_control;
 pub mod effects;
+pub mod event_log;
 pub mod gathering;
 pub mod loot;
 pub mod movement;

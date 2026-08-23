@@ -20,6 +20,11 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+# Keep this module an independent Cargo project even when it is checked from
+# inside the repository checkout. It is intentionally not a root-workspace
+# member because it must only be linked for wasm32 by SpacetimeDB.
+[workspace]
+
 [dependencies]
 # Pinned exactly: the derives generate impls of traits re-exported from
 # `spacetimedb-lib`, and the CLI that publishes the module is itself 2.8.1.

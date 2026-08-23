@@ -887,6 +887,43 @@ pub struct CastEndedEvent {
     pub interrupted: bool,
 }
 
+/// Persistent, server-only domain history for gateway/admin and inspect.
+#[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DomainEventKind {
+    DamageDealt,
+    EntityDied,
+    PlayerDied,
+    SpellCast,
+}
+
+#[table(
+    accessor = domain_event,
+    index(accessor = by_time, btree(columns = [occurred_at]))
+)]
+pub struct DomainEvent {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    pub occurred_at: Timestamp,
+    pub kind: DomainEventKind,
+    pub actor_entity_id: Option<u64>,
+    pub target_entity_id: Option<u64>,
+    pub amount: Option<f32>,
+    pub source_id: Option<String>,
+    pub killer_entity_id: Option<u64>,
+    pub payload: Option<String>,
+}
+
+/// Server-side switch and thresholds for raw domain event recording.
+#[table(accessor = domain_event_config)]
+pub struct DomainEventConfig {
+    #[primary_key]
+    pub id: u8,
+    pub enabled: bool,
+    pub damage_threshold: f32,
+    pub retention_seconds: u64,
+}
+
 /// A line of text for one player, or for everyone when `target` is `None`.
 #[table(accessor = player_message, public, event)]
 pub struct PlayerMessageEvent {
@@ -1001,6 +1038,18 @@ pub struct LootBagSlot {
 /// Drives `game_tick`. One row, inserted by `init`.
 #[table(accessor = tick_schedule, scheduled(crate::tick::game_tick))]
 pub struct TickSchedule {
+    #[primary_key]
+    #[auto_inc]
+    pub scheduled_id: u64,
+    pub scheduled_at: spacetimedb::ScheduleAt,
+}
+
+/// Runs domain-event retention away from the simulation hot path.
+#[table(
+    accessor = domain_event_cleanup_schedule,
+    scheduled(crate::sim::event_log::prune)
+)]
+pub struct DomainEventCleanupSchedule {
     #[primary_key]
     #[auto_inc]
     pub scheduled_id: u64,

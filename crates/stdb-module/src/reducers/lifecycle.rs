@@ -27,6 +27,20 @@ pub fn init(ctx: &ReducerContext) {
         scheduled_id: 0,
         scheduled_at: ScheduleAt::Interval(Duration::from_millis(TICK_INTERVAL_MS).into()),
     });
+    ctx.db
+        .domain_event_config()
+        .insert(crate::tables::DomainEventConfig {
+            id: 0,
+            enabled: true,
+            damage_threshold: crate::sim::event_log::DEFAULT_DAMAGE_THRESHOLD,
+            retention_seconds: crate::sim::event_log::DEFAULT_RETENTION_SECONDS,
+        });
+    ctx.db
+        .domain_event_cleanup_schedule()
+        .insert(crate::tables::DomainEventCleanupSchedule {
+            scheduled_id: 0,
+            scheduled_at: crate::sim::event_log::schedule(),
+        });
 
     crate::reducers::market::seed_markets(ctx);
     world::seed(ctx);
