@@ -933,8 +933,34 @@ pub struct DomainEventConfig {
 }
 
 /// A line of text for one player, or for everyone when `target` is `None`.
+/// Chat and short server notices.
+///
+/// # `target` is routing, not confidentiality
+///
+/// This is an `event` table, and it is `public`, so every connected client
+/// receives every row and the recipient check happens client-side (see
+/// `bevymmo_client`'s `drain_events`). `target` says which client should
+/// *display* the line. It does not stop the others from reading it.
+///
+/// That is not an oversight waiting for a fix, it is what SpacetimeDB 2.8.1
+/// permits. Row-level security is unimplemented upstream, so visibility is
+/// per-table; a `view` cannot help because views read rows and an event table
+/// has none to read; and a private event table would deliver to nobody at all,
+/// since no client can subscribe to it.
+///
+/// It is currently harmless because every targeted message restates, in the
+/// second person, something already public: "You are back on your feet"
+/// alongside `game_entity.state`, "You joined the party" alongside
+/// `party_member`.
+///
+/// **So the rule is: nothing may go in here that is not already derivable from
+/// a public table.** No whispers, no mail, no codes, no moderation notes. When
+/// something like that is wanted, it needs a private non-event table plus a
+/// caller-filtered view in `crate::views` — the `my_*` pattern — and a
+/// retention policy, because those rows persist.
 #[table(accessor = player_message, public, event)]
 pub struct PlayerMessageEvent {
+    /// Whose client should show this line. A display hint — see the type docs.
     pub target: Option<Identity>,
     pub text: String,
 }
