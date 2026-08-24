@@ -25,8 +25,8 @@ use tokio::signal;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
 
-use bevymmo_app_support::settings::Settings;
 use api::rate_limit::RateLimiter;
+use bevymmo_app_support::settings::Settings;
 use stdb::directory::PlayerDirectory;
 use stdb::session::SessionStore;
 
@@ -120,8 +120,8 @@ async fn main() {
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("gateway server crashed");
+    .await
+    .expect("gateway server crashed");
 }
 
 // `Any` origin is not an option: the session cookie needs

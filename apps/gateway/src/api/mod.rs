@@ -23,9 +23,9 @@ pub mod api_keys;
 pub mod auth;
 pub mod characters;
 pub mod docs;
-pub(crate) mod rate_limit;
 pub mod error;
 pub mod public;
+pub(crate) mod rate_limit;
 
 use std::time::{Duration, Instant};
 

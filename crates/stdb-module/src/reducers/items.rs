@@ -935,7 +935,10 @@ pub(crate) fn store_inventory(ctx: &ReducerContext, character_id: Uuid, inventor
     });
 }
 
-pub(crate) fn load_equipment(ctx: &ReducerContext, character_id: Uuid) -> Result<Equipment, String> {
+pub(crate) fn load_equipment(
+    ctx: &ReducerContext,
+    character_id: Uuid,
+) -> Result<Equipment, String> {
     ctx.db
         .equipment()
         .character_id()

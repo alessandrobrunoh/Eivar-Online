@@ -100,8 +100,6 @@ impl SessionStore {
         }
     }
 
-
-
     /// The connection for `id`, refreshing its idle timer. `None` if `id` is
     /// unknown or was already reaped for inactivity.
     pub async fn get(&self, id: &str) -> Option<GatewayConnection> {

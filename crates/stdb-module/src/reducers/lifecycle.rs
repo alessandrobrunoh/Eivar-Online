@@ -6,10 +6,10 @@ use std::time::Duration;
 use crate::reducers::account::caller_session;
 use crate::rows::{equipment_to_rows, inventory_to_rows, HotbarRow, StatsRow, Vec3Row};
 use crate::tables::{
-    active_status, aoe_region, boss_state, cast_state, character_wallet, cooldown, crowd_control,
-    craft_session, domain_event_cleanup_schedule, domain_event_config, enemy_ai, entity_stats,
-    equipment, game_entity, gather_session, grid_cell, hotbar, inventory, loot_bag, loot_bag_slot,
-    known_ancient_language, npc, periodic_effect, player, player_stats, projectile, resonance,
+    active_status, aoe_region, boss_state, cast_state, character_wallet, cooldown, craft_session,
+    crowd_control, domain_event_cleanup_schedule, domain_event_config, enemy_ai, entity_stats,
+    equipment, game_entity, gather_session, grid_cell, hotbar, inventory, known_ancient_language,
+    loot_bag, loot_bag_slot, npc, periodic_effect, player, player_stats, projectile, resonance,
     session, stat_modifier, threat, tick_schedule, tick_stats, CharacterWallet, ColorRow,
     EntityKindRow, EntityStateRow, EquipmentTable, GameEntity, Hotbar, InventoryTable,
     KnownAncientLanguageTable, Player, PlayerStats, Session, TickSchedule,
@@ -657,7 +657,10 @@ mod tests {
     #[test]
     fn character_cap_admits_accounts_below_the_limit() {
         for count in 0..MAX_CHARACTERS_PER_ACCOUNT {
-            assert!(!at_character_cap(count), "{count} characters must still fit");
+            assert!(
+                !at_character_cap(count),
+                "{count} characters must still fit"
+            );
         }
     }
 

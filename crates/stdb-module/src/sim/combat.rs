@@ -45,9 +45,8 @@ use crate::sim::throttle::Throttle;
 use crate::tables::{
     active_status, boss_state, crowd_control, damage_event, enemy_ai, entity_stats, equipment,
     game_entity, party_member, periodic_effect, player_stats, stat_modifier, BossPhaseRow,
-    BossState,
-    DamageEventRow, EntityKindRow, EntityStateRow, EntityStats, GameEntity, ModifierKindRow,
-    PeriodicEffect, StatModifier,
+    BossState, DamageEventRow, EntityKindRow, EntityStateRow, EntityStats, GameEntity,
+    ModifierKindRow, PeriodicEffect, StatModifier,
 };
 
 static NON_PLAYER_BASE_STATS: Mutex<Option<HashMap<u64, StatsRow>>> = Mutex::new(None);

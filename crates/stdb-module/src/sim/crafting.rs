@@ -46,13 +46,7 @@ pub(crate) fn npc_craft_categories(
 }
 
 pub fn cancel_session(ctx: &ReducerContext, entity_id: u64) {
-    if ctx
-        .db
-        .craft_session()
-        .entity_id()
-        .find(entity_id)
-        .is_some()
-    {
+    if ctx.db.craft_session().entity_id().find(entity_id).is_some() {
         ctx.db.craft_session().entity_id().delete(entity_id);
     }
 }
@@ -92,12 +86,7 @@ fn advance_session(ctx: &ReducerContext, mut session: CraftSession, dt: f32) {
         return;
     }
 
-    let Some(npc_entity) = ctx
-        .db
-        .game_entity()
-        .entity_id()
-        .find(session.npc_entity_id)
-    else {
+    let Some(npc_entity) = ctx.db.game_entity().entity_id().find(session.npc_entity_id) else {
         interrupt(ctx, &session, crafter.owner_character_id);
         return;
     };

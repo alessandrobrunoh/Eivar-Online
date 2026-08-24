@@ -25,8 +25,8 @@ use bevymmo_domain::abilities::{
     resolve_root_inscribed_slot, AbilityCastMode, AbilitySlot, CastBlockedReason,
     ChannelMovementPolicy as AbilityChannelMovementPolicy,
 };
-use bevymmo_domain::movement::{should_face_cast_target, MovementLock};
 use bevymmo_domain::items::components::EquipSlot;
+use bevymmo_domain::movement::{should_face_cast_target, MovementLock};
 use bevymmo_domain::spells::context::SpellCastContext;
 use bevymmo_domain::EntityId;
 use glam::Vec3;
