@@ -1,0 +1,86 @@
+# Runs the two commands AGENTS.md documents, plus the one it could not: the
+# SpacetimeDB module is excluded from the Cargo workspace (see the root
+# `Cargo.toml` for why), so `cargo test --workspace` never touched 13k lines of
+# authoritative server logic. It gets its own job here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  workspace:
+    name: Workspace — lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Bevy pulls in ALSA and udev through `bevy_audio`/`bevy_winit`. The
+      # client crates fail to build without them even though CI never opens a
+      # window.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The module builds for a different target and has its own lockfile
+          # resolution; sharing one cache key between the two jobs would thrash.
+          key: workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+  module:
+    name: SpacetimeDB module — lint, test and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/stdb-module
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/stdb-module
+          key: module
+
+      # Host-target lint and test. Neither links, which is what makes them
+      # possible at all: `spacetimedb-bindings-sys` declares its host functions
+      # as WASM imports with no `#[cfg(target_arch)]` guard, so a host *build*
+      # would fail on unresolved symbols.
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      # The one step that proves the module still links for the target it
+      # actually runs on. `spacetime build` wraps `cargo build --target
+      # wasm32-unknown-unknown --release` plus the schema extraction that
+      # catches, for example, a table row type the SATS derive cannot handle.
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl -sSf https://install.spacetimedb.com | sh -s -- --yes
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build module
+        run: spacetime build
