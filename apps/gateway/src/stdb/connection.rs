@@ -73,10 +73,34 @@ fn outcome_sender(
     }
 }
 
+/// Closes the socket when the last [`GatewayConnection`] handle goes away.
+///
+/// Deliberately *not* held by the background task, only by the handles: the
+/// task owns an `Arc<DbConnection>` of its own, so before this existed nothing
+/// closed a connection whose handles had all been dropped without an explicit
+/// `disconnect()`. The 15s request timeout in `api::mod` does exactly that —
+/// it drops the handler future mid-`await` — so every timed-out login leaked
+/// one live WebSocket to SpacetimeDB for the lifetime of the process.
+struct DisconnectGuard {
+    conn: Arc<DbConnection>,
+}
+
+impl Drop for DisconnectGuard {
+    fn drop(&mut self) {
+        // Already-disconnected is the normal case on an explicit `disconnect()`
+        // followed by the handle dropping; it is not worth a warning.
+        if let Err(err) = self.conn.disconnect() {
+            tracing::debug!("gateway connection already closed on drop: {err}");
+        }
+    }
+}
+
 /// A live SpacetimeDB connection plus the background task advancing it.
 /// Cloning shares the same underlying connection — cheap, and what the
 /// session store wants: every request for the same browser session reuses
 /// one connection rather than opening a new one.
+///
+/// The socket closes when the last clone drops. See [`DisconnectGuard`].
 #[derive(Clone)]
 pub struct GatewayConnection {
     conn: Arc<DbConnection>,
@@ -84,6 +108,8 @@ pub struct GatewayConnection {
     /// gone. Read by [`Self::is_closed`] so long-lived holders (the public
     /// directory) can tell a live cache from a dead one and reconnect.
     closed: Arc<AtomicBool>,
+    /// Last one out closes the socket. Never cloned into the background task.
+    _guard: Arc<DisconnectGuard>,
 }
 
 impl GatewayConnection {
@@ -116,7 +142,15 @@ impl GatewayConnection {
             closed_flag.store(true, Ordering::Release);
         });
 
-        let this = Self { conn, closed };
+        let this = Self {
+            _guard: Arc::new(DisconnectGuard {
+                conn: Arc::clone(&conn),
+            }),
+            conn,
+            closed,
+        };
+        // If the subscription handshake fails, `this` drops here and the guard
+        // closes the socket — the same path that used to leak.
         this.subscribe().await?;
         Ok(this)
     }
