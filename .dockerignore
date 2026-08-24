@@ -21,3 +21,13 @@ config/local.toml
 *.blend1
 *.blend2
 __pycache__/
+
+# Game assets. Only the desktop client loads these; the gateway image is an
+# HTTP service and does not, so shipping them just inflates the build context
+# (`assets/` alone is well over 100 MB).
+assets/
+apps/frontend/design-assets/
+plans/
+docs/
+*.glb
+*.blend

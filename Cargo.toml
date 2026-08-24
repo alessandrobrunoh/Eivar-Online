@@ -19,12 +19,11 @@ default-members = ["bins/game"]
 # and the only crate allowed to depend on `spacetimedb`. Keeping it out of the
 # workspace stops a stray `cargo build` from trying to link its WASM imports
 # into a native binary. Build it with `spacetime build`/`publish` instead.
-# `crates/server` is the outgoing Bevy/lightyear/Postgres server. It is kept on
-# disk, out of the build, as the reference while its ~6300 lines of gameplay are
-# ported into `crates/stdb-module` reducers — porting from a deleted directory is
-# needlessly painful. It goes for good once the module covers combat, items,
-# abilities, AI and world seeding.
-exclude = ["crates/stdb-module", "crates/server"]
+# `crates/server` was the outgoing Bevy/lightyear/Postgres server, kept on disk
+# as a reference while its gameplay was ported into `crates/stdb-module`. The
+# port is done and the directory is gone; the exclude entry stays harmless but
+# is listed here only so the next person does not go looking for it.
+exclude = ["crates/stdb-module"]
 resolver = "2"
 
 # Shared package metadata. Every member inherits these with
