@@ -8,18 +8,46 @@ use spacetimedb::{reducer, ReducerContext, Table};
 
 use bevymmo_domain::abilities::RootWordId;
 
-use crate::reducers::lifecycle::caller_character;
 use crate::sim::spells;
 use crate::tables::{resonance, Resonance};
 
-/// Awards XP to the caller's resonance for `root_word_id`.
+/// Deprecated client-facing awarder. Kept as a reducer, and kept rejecting, for
+/// the same reason as [`set_resonance_xp`] below: the generated bindings still
+/// carry it, so an old client must get a deterministic refusal rather than a
+/// missing-reducer error — or, as before this change, a granted level.
+///
+/// It took `xp_amount: u64` straight from the caller with no cap and no
+/// authority check, so any connection with a character could hand itself the
+/// maximum level of any Ancient Word in one call. That is exactly what the
+/// comment on `set_resonance_xp` already forbade; the setter was closed and the
+/// adder was missed. Server gameplay calls [`award_xp`] instead.
+#[reducer]
+pub fn award_resonance_xp(
+    _ctx: &ReducerContext,
+    _root_word_id: String,
+    _xp_amount: u64,
+) -> Result<(), String> {
+    Err("resonance XP can only be awarded by server gameplay events".to_string())
+}
+
+/// Awards XP to `character_id`'s resonance for `root_word_id`.
 ///
 /// Creates the row if it does not yet exist. XP additions are clamped via
 /// `saturating_add` to prevent unsigned overflow; the caller should use a
 /// reasonable upper bound.
-#[reducer]
-pub fn award_resonance_xp(
+///
+/// Not a reducer: progression may only move as a consequence the server
+/// produced — a kill, a completed cast — never as something a client asked for.
+/// Call it from the gameplay path that earned the XP.
+///
+/// Currently unreferenced. The reducer it replaces had no caller either, so
+/// nothing in the game awards Resonance yet; deciding *what* earns how much XP
+/// is a balance question, not part of closing the exploit. The logic is kept
+/// here, working and tested, for whoever wires that up.
+#[allow(dead_code)]
+pub(crate) fn award_xp(
     ctx: &ReducerContext,
+    character_id: spacetimedb::Uuid,
     root_word_id: String,
     xp_amount: u64,
 ) -> Result<(), String> {
@@ -27,8 +55,6 @@ pub fn award_resonance_xp(
     if xp_amount == 0 {
         return Err("xp_amount must be positive".to_string());
     }
-
-    let character_id = caller_character(ctx)?.character_id;
 
     // Scan for existing row; SpacetimeDB 2.8.1 supports single-column indexes
     // on the primary accessor, so we filter by character_id then by root_word_id.
