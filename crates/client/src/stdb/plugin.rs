@@ -41,6 +41,7 @@ use bevy::window::WindowCloseRequested;
 use bevymmo_domain::movement::{self, predicted_move_dest, reconcile_offset, Reconcile, Step};
 use bevymmo_domain::movement::{movement_intent_allowed, MovementLock};
 
+use crate::loot::{LootBagMarker, LootBagView, OpenLootBag, WorldLoot};
 use bevymmo_domain::stats::events::{ModifierKind, ModifierOp, StatField};
 use bevymmo_domain::stats::modifiers::{
     ActiveStatModifiers, ModifierEffectInstance, ModifierId as StatModifierId, StatModifierInstance,
@@ -53,7 +54,6 @@ use bevymmo_gameplay::effects::{ActiveStatusSnapshot, ActiveStatuses};
 use bevymmo_gameplay::entity::boss::components::{Boss, BossArena, BossPhase};
 use bevymmo_gameplay::entity::components::{EntityKind, EntityState, GameEntity, PlayerName};
 use bevymmo_gameplay::gathering::{ActiveGather, Harvestable};
-use crate::loot::{LootBagMarker, LootBagView, OpenLootBag, WorldLoot};
 use bevymmo_gameplay::items::components::{Equipment, Inventory};
 use bevymmo_gameplay::items::{ItemId, ItemRegistry};
 use bevymmo_gameplay::stats::components::{
@@ -77,29 +77,30 @@ use super::module_bindings::aoe_region_table::AoeRegionTableAccess;
 use super::module_bindings::boss_state_table::BossStateTableAccess;
 use super::module_bindings::cast_ended_table::CastEndedTableAccess;
 use super::module_bindings::cast_state_table::CastStateTableAccess;
-use super::module_bindings::character_wallet_table::CharacterWalletTableAccess;
 use super::module_bindings::cooldown_table::CooldownTableAccess;
 use super::module_bindings::craft_session_table::CraftSessionTableAccess;
 use super::module_bindings::crowd_control_table::CrowdControlTableAccess;
 use super::module_bindings::delete_character_reducer::delete_character;
 use super::module_bindings::entity_stats_table::EntityStatsTableAccess;
-use super::module_bindings::equipment_table::EquipmentTableAccess;
 use super::module_bindings::game_entity_table::GameEntityTableAccess;
 use super::module_bindings::gather_session_table::GatherSessionTableAccess;
 use super::module_bindings::gather_yield_table::GatherYieldTableAccess;
 use super::module_bindings::heartbeat_reducer::heartbeat;
-use super::module_bindings::hotbar_table::HotbarTableAccess;
-use super::module_bindings::inventory_table::InventoryTableAccess;
 use super::module_bindings::join_reducer::join;
-use super::module_bindings::known_ancient_language_table::KnownAncientLanguageTableAccess;
 use super::module_bindings::leave_reducer::leave;
 use super::module_bindings::login_reducer::login;
+use super::module_bindings::logout_reducer::logout;
 use super::module_bindings::loot_bag_slot_table::LootBagSlotTableAccess;
 use super::module_bindings::loot_bag_table::LootBagTableAccess;
-use super::module_bindings::logout_reducer::logout;
 use super::module_bindings::market_buy_order_table::MarketBuyOrderTableAccess;
 use super::module_bindings::market_sell_order_table::MarketSellOrderTableAccess;
 use super::module_bindings::move_to_reducer::move_to;
+use super::module_bindings::my_ancient_language_table::MyAncientLanguageTableAccess;
+use super::module_bindings::my_equipment_table::MyEquipmentTableAccess;
+use super::module_bindings::my_hotbar_table::MyHotbarTableAccess;
+use super::module_bindings::my_inventory_table::MyInventoryTableAccess;
+use super::module_bindings::my_session_table::MySessionTableAccess;
+use super::module_bindings::my_wallet_table::MyWalletTableAccess;
 use super::module_bindings::npc_table::NpcTableAccess;
 use super::module_bindings::periodic_effect_table::PeriodicEffectTableAccess;
 use super::module_bindings::player_message_table::PlayerMessageTableAccess;
@@ -107,7 +108,6 @@ use super::module_bindings::player_table::PlayerTableAccess;
 use super::module_bindings::projectile_table::ProjectileTableAccess;
 use super::module_bindings::register_reducer::register;
 use super::module_bindings::resource_node_table::ResourceNodeTableAccess;
-use super::module_bindings::session_table::SessionTableAccess;
 use super::module_bindings::spell_visual_effect_table::SpellVisualEffectTableAccess;
 use super::module_bindings::stat_modifier_table::StatModifierTableAccess;
 use super::module_bindings::{
@@ -116,9 +116,9 @@ use super::module_bindings::{
     DbConnection, EntityKindRow, EntityStateRow, EntityStats, EquipmentTable,
     GameEntity as EntityRow, GatherSession, GatherYieldEvent, Hotbar, InventoryTable,
     ItemInstanceRow, KnownAncientLanguageTable, LootBag, LootBagSlot, MarketBuyOrder,
-    MarketSellOrder, ModifierKindRow, Npc, PeriodicEffect, Player, PlayerMessageEvent,
-    Projectile, ReducerEventContext,
-    RemoteReducers, ResourceNode, Session, SpellVisualEffectEvent, StatModifier, Vec3Row,
+    MarketSellOrder, ModifierKindRow, Npc, PeriodicEffect, Player, PlayerMessageEvent, Projectile,
+    ReducerEventContext, RemoteReducers, ResourceNode, Session, SpellVisualEffectEvent,
+    StatModifier, Vec3Row,
 };
 
 /// How fast predicted position is pulled back towards the authoritative one, as
@@ -314,12 +314,18 @@ impl StdbConnection {
     /// character only. The initial subscribe is world-wide combat state;
     /// bags stay off the wire until we know who we are playing.
     fn subscribe_owned_rows(&self, character_id: Uuid, entity_id: Option<u64>) {
+        // No `WHERE character_id = ...` any more: these are views, computed
+        // per caller from `ctx.sender()`, so the filtering happens server-side
+        // and cannot be widened from here. They cover every character on the
+        // account rather than just this one, which costs a handful of rows and
+        // means switching character needs no re-subscribe.
+        let _ = character_id;
         let mut queries = vec![
-            format!("SELECT * FROM inventory WHERE character_id = '{character_id}'"),
-            format!("SELECT * FROM equipment WHERE character_id = '{character_id}'"),
-            format!("SELECT * FROM hotbar WHERE character_id = '{character_id}'"),
-            format!("SELECT * FROM known_ancient_language WHERE character_id = '{character_id}'"),
-            format!("SELECT * FROM character_wallet WHERE character_id = '{character_id}'"),
+            "SELECT * FROM my_inventory".to_string(),
+            "SELECT * FROM my_equipment".to_string(),
+            "SELECT * FROM my_hotbar".to_string(),
+            "SELECT * FROM my_ancient_language".to_string(),
+            "SELECT * FROM my_wallet".to_string(),
         ];
         if let Some(entity_id) = entity_id {
             queries.push(format!(
@@ -772,7 +778,7 @@ fn connect(
             "SELECT * FROM game_entity",
             "SELECT * FROM entity_stats",
             "SELECT * FROM player",
-            "SELECT * FROM session",
+            "SELECT * FROM my_session",
             "SELECT * FROM cast_state",
             "SELECT * FROM boss_state",
             "SELECT * FROM active_status",
@@ -865,12 +871,12 @@ fn register_callbacks(conn: &DbConnection, tx: Sender<RowEvent>) {
     mirror!(game_entity, Entity);
     mirror!(entity_stats, Stats);
     mirror!(player, Player);
-    mirror!(session, Session);
-    mirror!(inventory, Inventory);
-    mirror!(character_wallet, Wallet);
-    mirror!(equipment, Equipment);
-    mirror!(hotbar, Hotbar);
-    mirror!(known_ancient_language, KnownAncientLanguage);
+    mirror!(my_session, Session);
+    mirror!(my_inventory, Inventory);
+    mirror!(my_wallet, Wallet);
+    mirror!(my_equipment, Equipment);
+    mirror!(my_hotbar, Hotbar);
+    mirror!(my_ancient_language, KnownAncientLanguage);
     mirror!(cast_state, CastState);
     mirror!(boss_state, BossState);
     mirror!(active_status, ActiveStatus);
@@ -2818,11 +2824,11 @@ fn register_party_callbacks(conn: &DbConnection, tx: Sender<PartyRowEvent>) {
     });
 
     let session_inserted = tx.clone();
-    conn.db().session().on_insert(move |_ctx, row| {
+    conn.db().my_session().on_insert(move |_ctx, row| {
         let _ = session_inserted.send(PartyRowEvent::SessionSeen(row.clone()));
     });
     let session_updated = tx.clone();
-    conn.db().session().on_update(move |_ctx, _old, new| {
+    conn.db().my_session().on_update(move |_ctx, _old, new| {
         let _ = session_updated.send(PartyRowEvent::SessionSeen(new.clone()));
     });
 

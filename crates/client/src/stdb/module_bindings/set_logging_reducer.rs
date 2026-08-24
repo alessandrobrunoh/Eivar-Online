@@ -6,49 +6,46 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 #[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug)]
 #[sats(crate = __lib)]
-pub(super) struct SetHotbarSpellArgs {
-    pub slot: String,
-    pub spell_id: Option<String>,
+pub(super) struct SetLoggingArgs {
+    pub enabled: bool,
 }
 
-impl From<SetHotbarSpellArgs> for super::Reducer {
-    fn from(args: SetHotbarSpellArgs) -> Self {
-        Self::SetHotbarSpell {
-            slot: args.slot,
-            spell_id: args.spell_id,
+impl From<SetLoggingArgs> for super::Reducer {
+    fn from(args: SetLoggingArgs) -> Self {
+        Self::SetLogging {
+            enabled: args.enabled,
         }
     }
 }
 
-impl __sdk::InModule for SetHotbarSpellArgs {
+impl __sdk::InModule for SetLoggingArgs {
     type Module = super::RemoteModule;
 }
 
 #[allow(non_camel_case_types)]
-/// Extension trait for access to the reducer `set_hotbar_spell`.
+/// Extension trait for access to the reducer `set_logging`.
 ///
 /// Implemented for [`super::RemoteReducers`].
-pub trait set_hotbar_spell {
-    /// Request that the remote module invoke the reducer `set_hotbar_spell` to run as soon as possible.
+pub trait set_logging {
+    /// Request that the remote module invoke the reducer `set_logging` to run as soon as possible.
     ///
     /// This method returns immediately, and errors only if we are unable to send the request.
     /// The reducer will run asynchronously in the future,
     ///  and this method provides no way to listen for its completion status.
-    /// /// Use [`set_hotbar_spell:set_hotbar_spell_then`] to run a callback after the reducer completes.
-    fn set_hotbar_spell(&self, slot: String, spell_id: Option<String>) -> __sdk::Result<()> {
-        self.set_hotbar_spell_then(slot, spell_id, |_, _| {})
+    /// /// Use [`set_logging:set_logging_then`] to run a callback after the reducer completes.
+    fn set_logging(&self, enabled: bool) -> __sdk::Result<()> {
+        self.set_logging_then(enabled, |_, _| {})
     }
 
-    /// Request that the remote module invoke the reducer `set_hotbar_spell` to run as soon as possible,
+    /// Request that the remote module invoke the reducer `set_logging` to run as soon as possible,
     /// registering `callback` to run when we are notified that the reducer completed.
     ///
     /// This method returns immediately, and errors only if we are unable to send the request.
     /// The reducer will run asynchronously in the future,
     ///  and its status can be observed with the `callback`.
-    fn set_hotbar_spell_then(
+    fn set_logging_then(
         &self,
-        slot: String,
-        spell_id: Option<String>,
+        enabled: bool,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
@@ -56,17 +53,16 @@ pub trait set_hotbar_spell {
     ) -> __sdk::Result<()>;
 }
 
-impl set_hotbar_spell for super::RemoteReducers {
-    fn set_hotbar_spell_then(
+impl set_logging for super::RemoteReducers {
+    fn set_logging_then(
         &self,
-        slot: String,
-        spell_id: Option<String>,
+        enabled: bool,
 
         callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
             + Send
             + 'static,
     ) -> __sdk::Result<()> {
         self.imp
-            .invoke_reducer_with_callback(SetHotbarSpellArgs { slot, spell_id }, callback)
+            .invoke_reducer_with_callback(SetLoggingArgs { enabled }, callback)
     }
 }

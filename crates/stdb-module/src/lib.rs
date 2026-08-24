@@ -25,6 +25,7 @@ pub mod rows;
 pub mod sim;
 pub mod tables;
 pub mod tick;
+pub mod views;
 pub mod world;
 
 /// Simulation step, in milliseconds.

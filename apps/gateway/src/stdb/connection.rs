@@ -35,10 +35,10 @@ use super::module_bindings::register_reducer::register;
 use super::module_bindings::revoke_api_key_reducer::revoke_api_key;
 use super::module_bindings::stats_row_type::StatsRow;
 use super::module_bindings::{
-    CharacterWalletTableAccess, DbConnection, EntityStatsTableAccess, ErrorContext, Market, MarketBuyOrder,
+    DbConnection, EntityStatsTableAccess, ErrorContext, Market, MarketBuyOrder,
     MarketBuyOrderTableAccess, MarketSellOrder, MarketSellOrderTableAccess, MarketTableAccess,
-    MyApiKeysTableAccess, Player, PlayerTableAccess, ReducerEventContext,
-    SessionTableAccess,
+    MyApiKeysTableAccess, MySessionTableAccess, MyWalletTableAccess, Player, PlayerTableAccess,
+    ReducerEventContext,
 };
 
 /// One of the caller's own characters, for the `/profile` endpoint.
@@ -158,11 +158,16 @@ impl GatewayConnection {
     /// Subscribes to the public tables this gateway reads, then awaits the
     /// initial snapshot so callers do not race an empty local cache.
     ///
-    /// `player` / `session` back the character roster and this connection's
-    /// `account_id`. `market` / `market_sell_order` / `market_buy_order` /
-    /// `character_wallet` back the public market APIs and the wallet lookup.
-    /// `my_api_keys` is the per-caller view of API-key metadata (no hashes).
-    /// `player_stats` backs `/v1/characters/:id/stats`.
+    /// `player` is public — it is the character roster every client can see.
+    /// The rest are `my_*` views, computed per caller from `ctx.sender()`, so
+    /// this connection sees only the account it authenticated as: `my_session`
+    /// for `account_id`, `my_wallet` for the wallet lookup, `my_api_keys` for
+    /// API-key metadata (never hashes). `market` and the two order books are
+    /// public because the books are.
+    ///
+    /// `player_stats` used to be here and is gone: nothing read it. The stats
+    /// endpoint resolves through `entity_stats`, which is live combat state for
+    /// every entity and stays public.
     async fn subscribe(&self) -> Result<(), String> {
         let (tx, rx) = oneshot::channel();
         let tx = Arc::new(Mutex::new(Some(tx)));
@@ -183,13 +188,12 @@ impl GatewayConnection {
             })
             .subscribe([
                 "SELECT * FROM player",
-                "SELECT * FROM session",
+                "SELECT * FROM my_session",
                 "SELECT * FROM market",
                 "SELECT * FROM market_sell_order",
                 "SELECT * FROM market_buy_order",
-                "SELECT * FROM character_wallet",
+                "SELECT * FROM my_wallet",
                 "SELECT * FROM my_api_keys",
-                "SELECT * FROM player_stats",
             ]);
 
         rx.await
@@ -216,12 +220,16 @@ impl GatewayConnection {
     /// table rather than tracked locally, so it is always consistent with
     /// what the server actually recorded.
     pub fn account_id(&self) -> Option<u64> {
-        let identity = self.identity()?;
+        // `my_session` is computed from `ctx.sender()` and holds at most this
+        // connection's own row, so the scan over every session in the database
+        // that used to be here is now a single-element read. The `session`
+        // table itself is no longer public — see `bevymmo_module::views`.
+        let _ = self.identity()?;
         self.conn
             .db()
-            .session()
+            .my_session()
             .iter()
-            .find(|row| row.identity == identity)
+            .next()
             .map(|row| row.account_id)
     }
 
@@ -283,7 +291,7 @@ impl GatewayConnection {
         let character_id = spacetimedb_sdk::Uuid::from_u128(character_id.as_u128());
         self.conn
             .db()
-            .character_wallet()
+            .my_wallet()
             .iter()
             .find(|row| row.character_id == character_id)
             .map(|row| row.gold)

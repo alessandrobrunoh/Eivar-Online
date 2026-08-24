@@ -106,7 +106,7 @@ pub struct Account {
 /// derive from `player` before it has a character yet — and from there build
 /// its character roster, by filtering `player` rows client-side to the row
 /// whose `identity` matches its own connection.
-#[table(accessor = session, public)]
+#[table(accessor = session)]
 pub struct Session {
     #[primary_key]
     pub identity: Identity,
@@ -206,7 +206,7 @@ pub struct Player {
 /// Created at `join` with `gold = 0`. `Account` itself holds no Gold — that
 /// table is credentials, and Crystals (later) get their own account-scoped
 /// table rather than a column here.
-#[table(accessor = character_wallet, public)]
+#[table(accessor = character_wallet)]
 pub struct CharacterWallet {
     #[primary_key]
     pub character_id: Uuid,
@@ -217,7 +217,7 @@ pub struct CharacterWallet {
 /// credential. `fee_bps` starts at
 /// [`bevymmo_domain::economy::DEFAULT_ACCOUNT_FEE_BPS`] and a future
 /// subscription reducer writes `0` without touching each market's own fee.
-#[table(accessor = account_economy, public)]
+#[table(accessor = account_economy)]
 pub struct AccountEconomy {
     #[primary_key]
     pub account_id: u64,
@@ -290,28 +290,28 @@ pub struct MarketBuyOrder {
 }
 
 /// Base stats, without equipment bonuses. See [`StatsRow`].
-#[table(accessor = player_stats, public)]
+#[table(accessor = player_stats)]
 pub struct PlayerStats {
     #[primary_key]
     pub character_id: Uuid,
     pub stats: StatsRow,
 }
 
-#[table(accessor = hotbar, public)]
+#[table(accessor = hotbar)]
 pub struct Hotbar {
     #[primary_key]
     pub character_id: Uuid,
     pub slots: HotbarRow,
 }
 
-#[table(accessor = inventory, public)]
+#[table(accessor = inventory)]
 pub struct InventoryTable {
     #[primary_key]
     pub character_id: Uuid,
     pub slots: Vec<Option<ItemInstanceRow>>,
 }
 
-#[table(accessor = equipment, public)]
+#[table(accessor = equipment)]
 pub struct EquipmentTable {
     #[primary_key]
     pub character_id: Uuid,
@@ -322,7 +322,7 @@ pub struct EquipmentTable {
 /// New vocabulary for Root Words and universal Ancient Words. This table is
 /// additive to `KnownGlyphsTable` so existing characters remain readable while
 /// the migration is in progress.
-#[table(accessor = known_ancient_language, public)]
+#[table(accessor = known_ancient_language)]
 pub struct KnownAncientLanguageTable {
     #[primary_key]
     pub character_id: Uuid,
@@ -337,7 +337,7 @@ pub struct KnownAncientLanguageTable {
 /// is enforced unique so that a character has at most one row per word.
 #[table(
     accessor = resonance,
-    public,
+    index(accessor = by_character, btree(columns = [character_id])),
     index(accessor = character_root_word, btree(columns = [character_id, root_word_id]))
 )]
 #[derive(Clone)]
@@ -426,8 +426,8 @@ pub enum PartyRequestKind {
 /// named character" is never ambiguous.
 #[table(
     accessor = party_request,
-    public,
-    index(accessor = by_recipient, btree(columns = [recipient]))
+    index(accessor = by_recipient, btree(columns = [recipient])),
+    index(accessor = by_initiator, btree(columns = [initiator]))
 )]
 pub struct PartyRequestRow {
     #[primary_key]

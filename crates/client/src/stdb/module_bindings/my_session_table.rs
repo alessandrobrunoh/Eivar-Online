@@ -5,54 +5,54 @@
 use super::session_type::Session;
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
-/// Table handle for the table `session`.
+/// Table handle for the table `my_session`.
 ///
-/// Obtain a handle from the [`SessionTableAccess::session`] method on [`super::RemoteTables`],
-/// like `ctx.db.session()`.
+/// Obtain a handle from the [`MySessionTableAccess::my_session`] method on [`super::RemoteTables`],
+/// like `ctx.db.my_session()`.
 ///
 /// Users are encouraged not to explicitly reference this type,
 /// but to directly chain method calls,
-/// like `ctx.db.session().on_insert(...)`.
-pub struct SessionTableHandle<'ctx> {
+/// like `ctx.db.my_session().on_insert(...)`.
+pub struct MySessionTableHandle<'ctx> {
     imp: __sdk::TableHandle<Session>,
     ctx: std::marker::PhantomData<&'ctx super::RemoteTables>,
 }
 
-/// Lifetime-aware accessor marker for the table `session`.
-pub struct SessionTableAccessor;
+/// Lifetime-aware accessor marker for the table `my_session`.
+pub struct MySessionTableAccessor;
 
-impl __sdk::TableAccessor<super::RemoteTables> for SessionTableAccessor {
+impl __sdk::TableAccessor<super::RemoteTables> for MySessionTableAccessor {
     type Row = Session;
-    type Handle<'db> = SessionTableHandle<'db>;
+    type Handle<'db> = MySessionTableHandle<'db>;
 
     fn get<'db>(db: &'db super::RemoteTables) -> Self::Handle<'db> {
-        db.session()
+        db.my_session()
     }
 }
 
 #[allow(non_camel_case_types)]
-/// Extension trait for access to the table `session`.
+/// Extension trait for access to the table `my_session`.
 ///
 /// Implemented for [`super::RemoteTables`].
-pub trait SessionTableAccess {
+pub trait MySessionTableAccess {
     #[allow(non_snake_case)]
-    /// Obtain a [`SessionTableHandle`], which mediates access to the table `session`.
-    fn session(&self) -> SessionTableHandle<'_>;
+    /// Obtain a [`MySessionTableHandle`], which mediates access to the table `my_session`.
+    fn my_session(&self) -> MySessionTableHandle<'_>;
 }
 
-impl SessionTableAccess for super::RemoteTables {
-    fn session(&self) -> SessionTableHandle<'_> {
-        SessionTableHandle {
-            imp: self.imp.get_table::<Session>("session"),
+impl MySessionTableAccess for super::RemoteTables {
+    fn my_session(&self) -> MySessionTableHandle<'_> {
+        MySessionTableHandle {
+            imp: self.imp.get_table::<Session>("my_session"),
             ctx: std::marker::PhantomData,
         }
     }
 }
 
-pub struct SessionInsertCallbackId(__sdk::CallbackId);
-pub struct SessionDeleteCallbackId(__sdk::CallbackId);
+pub struct MySessionInsertCallbackId(__sdk::CallbackId);
+pub struct MySessionDeleteCallbackId(__sdk::CallbackId);
 
-impl<'ctx> __sdk::TableLike for SessionTableHandle<'ctx> {
+impl<'ctx> __sdk::TableLike for MySessionTableHandle<'ctx> {
     type Row = Session;
     type EventContext = super::EventContext;
 
@@ -64,7 +64,7 @@ impl<'ctx> __sdk::TableLike for SessionTableHandle<'ctx> {
     }
 }
 
-impl<'ctx> __sdk::Table for SessionTableHandle<'ctx> {
+impl<'ctx> __sdk::Table for MySessionTableHandle<'ctx> {
     type Row = Session;
     type EventContext = super::EventContext;
 
@@ -75,111 +75,111 @@ impl<'ctx> __sdk::Table for SessionTableHandle<'ctx> {
         self.imp.iter()
     }
 
-    type InsertCallbackId = SessionInsertCallbackId;
+    type InsertCallbackId = MySessionInsertCallbackId;
 
     fn on_insert(
         &self,
         callback: impl FnMut(&Self::EventContext, &Self::Row) + Send + 'static,
-    ) -> SessionInsertCallbackId {
-        SessionInsertCallbackId(self.imp.on_insert(Box::new(callback)))
+    ) -> MySessionInsertCallbackId {
+        MySessionInsertCallbackId(self.imp.on_insert(Box::new(callback)))
     }
 
-    fn remove_on_insert(&self, callback: SessionInsertCallbackId) {
+    fn remove_on_insert(&self, callback: MySessionInsertCallbackId) {
         self.imp.remove_on_insert(callback.0)
     }
 
-    type DeleteCallbackId = SessionDeleteCallbackId;
+    type DeleteCallbackId = MySessionDeleteCallbackId;
 
     fn on_delete(
         &self,
         callback: impl FnMut(&Self::EventContext, &Self::Row) + Send + 'static,
-    ) -> SessionDeleteCallbackId {
-        SessionDeleteCallbackId(self.imp.on_delete(Box::new(callback)))
+    ) -> MySessionDeleteCallbackId {
+        MySessionDeleteCallbackId(self.imp.on_delete(Box::new(callback)))
     }
 
-    fn remove_on_delete(&self, callback: SessionDeleteCallbackId) {
+    fn remove_on_delete(&self, callback: MySessionDeleteCallbackId) {
         self.imp.remove_on_delete(callback.0)
     }
 }
 
-impl<'ctx> __sdk::WithInsert for SessionTableHandle<'ctx> {
-    type InsertCallbackId = SessionInsertCallbackId;
+impl<'ctx> __sdk::WithInsert for MySessionTableHandle<'ctx> {
+    type InsertCallbackId = MySessionInsertCallbackId;
 
     fn on_insert(
         &self,
         callback: impl FnMut(&Self::EventContext, &Self::Row) + Send + 'static,
-    ) -> SessionInsertCallbackId {
-        SessionInsertCallbackId(self.imp.on_insert(Box::new(callback)))
+    ) -> MySessionInsertCallbackId {
+        MySessionInsertCallbackId(self.imp.on_insert(Box::new(callback)))
     }
 
-    fn remove_on_insert(&self, callback: SessionInsertCallbackId) {
+    fn remove_on_insert(&self, callback: MySessionInsertCallbackId) {
         self.imp.remove_on_insert(callback.0)
     }
 }
 
-impl<'ctx> __sdk::WithDelete for SessionTableHandle<'ctx> {
-    type DeleteCallbackId = SessionDeleteCallbackId;
+impl<'ctx> __sdk::WithDelete for MySessionTableHandle<'ctx> {
+    type DeleteCallbackId = MySessionDeleteCallbackId;
 
     fn on_delete(
         &self,
         callback: impl FnMut(&Self::EventContext, &Self::Row) + Send + 'static,
-    ) -> SessionDeleteCallbackId {
-        SessionDeleteCallbackId(self.imp.on_delete(Box::new(callback)))
+    ) -> MySessionDeleteCallbackId {
+        MySessionDeleteCallbackId(self.imp.on_delete(Box::new(callback)))
     }
 
-    fn remove_on_delete(&self, callback: SessionDeleteCallbackId) {
+    fn remove_on_delete(&self, callback: MySessionDeleteCallbackId) {
         self.imp.remove_on_delete(callback.0)
     }
 }
 
-pub struct SessionUpdateCallbackId(__sdk::CallbackId);
+pub struct MySessionUpdateCallbackId(__sdk::CallbackId);
 
-impl<'ctx> __sdk::TableWithPrimaryKey for SessionTableHandle<'ctx> {
-    type UpdateCallbackId = SessionUpdateCallbackId;
-
-    fn on_update(
-        &self,
-        callback: impl FnMut(&Self::EventContext, &Self::Row, &Self::Row) + Send + 'static,
-    ) -> SessionUpdateCallbackId {
-        SessionUpdateCallbackId(self.imp.on_update(Box::new(callback)))
-    }
-
-    fn remove_on_update(&self, callback: SessionUpdateCallbackId) {
-        self.imp.remove_on_update(callback.0)
-    }
-}
-
-impl<'ctx> __sdk::WithUpdate for SessionTableHandle<'ctx> {
-    type UpdateCallbackId = SessionUpdateCallbackId;
+impl<'ctx> __sdk::TableWithPrimaryKey for MySessionTableHandle<'ctx> {
+    type UpdateCallbackId = MySessionUpdateCallbackId;
 
     fn on_update(
         &self,
         callback: impl FnMut(&Self::EventContext, &Self::Row, &Self::Row) + Send + 'static,
-    ) -> SessionUpdateCallbackId {
-        SessionUpdateCallbackId(self.imp.on_update(Box::new(callback)))
+    ) -> MySessionUpdateCallbackId {
+        MySessionUpdateCallbackId(self.imp.on_update(Box::new(callback)))
     }
 
-    fn remove_on_update(&self, callback: SessionUpdateCallbackId) {
+    fn remove_on_update(&self, callback: MySessionUpdateCallbackId) {
         self.imp.remove_on_update(callback.0)
     }
 }
 
-/// Access to the `identity` unique index on the table `session`,
+impl<'ctx> __sdk::WithUpdate for MySessionTableHandle<'ctx> {
+    type UpdateCallbackId = MySessionUpdateCallbackId;
+
+    fn on_update(
+        &self,
+        callback: impl FnMut(&Self::EventContext, &Self::Row, &Self::Row) + Send + 'static,
+    ) -> MySessionUpdateCallbackId {
+        MySessionUpdateCallbackId(self.imp.on_update(Box::new(callback)))
+    }
+
+    fn remove_on_update(&self, callback: MySessionUpdateCallbackId) {
+        self.imp.remove_on_update(callback.0)
+    }
+}
+
+/// Access to the `identity` unique index on the table `my_session`,
 /// which allows point queries on the field of the same name
-/// via the [`SessionIdentityUnique::find`] method.
+/// via the [`MySessionIdentityUnique::find`] method.
 ///
 /// Users are encouraged not to explicitly reference this type,
 /// but to directly chain method calls,
-/// like `ctx.db.session().identity().find(...)`.
-pub struct SessionIdentityUnique<'ctx> {
+/// like `ctx.db.my_session().identity().find(...)`.
+pub struct MySessionIdentityUnique<'ctx> {
     imp: __sdk::UniqueConstraintHandle<Session, __sdk::Identity>,
     phantom: std::marker::PhantomData<&'ctx super::RemoteTables>,
 }
 
-impl<'ctx> SessionTableHandle<'ctx> {
-    /// Get a handle on the `identity` unique index on the table `session`.
-    pub fn identity(&self) -> SessionIdentityUnique<'ctx> {
-        SessionIdentityUnique {
+impl<'ctx> MySessionTableHandle<'ctx> {
+    /// Get a handle on the `identity` unique index on the table `my_session`.
+    pub fn identity(&self) -> MySessionIdentityUnique<'ctx> {
+        MySessionIdentityUnique {
             imp: self
                 .imp
                 .get_unique_constraint::<__sdk::Identity>("identity"),
@@ -188,7 +188,7 @@ impl<'ctx> SessionTableHandle<'ctx> {
     }
 }
 
-impl<'ctx> SessionIdentityUnique<'ctx> {
+impl<'ctx> MySessionIdentityUnique<'ctx> {
     /// Find the subscribed row whose `identity` column value is equal to `col_val`,
     /// if such a row is present in the client cache.
     pub fn find(&self, col_val: &__sdk::Identity) -> Option<Session> {
@@ -198,7 +198,7 @@ impl<'ctx> SessionIdentityUnique<'ctx> {
 
 #[doc(hidden)]
 pub(super) fn register_table(client_cache: &mut __sdk::ClientCache<super::RemoteModule>) {
-    let _table = client_cache.get_or_make_table::<Session>("session");
+    let _table = client_cache.get_or_make_table::<Session>("my_session");
     _table.add_unique_constraint::<__sdk::Identity>("identity", |row| &row.identity);
 }
 
@@ -217,14 +217,14 @@ pub(super) fn parse_table_update(
 /// Extension trait for query builder access to the table `Session`.
 ///
 /// Implemented for [`__sdk::QueryTableAccessor`].
-pub trait sessionQueryTableAccess {
+pub trait my_sessionQueryTableAccess {
     #[allow(non_snake_case)]
     /// Get a query builder for the table `Session`.
-    fn session(&self) -> __sdk::__query_builder::Table<Session>;
+    fn my_session(&self) -> __sdk::__query_builder::Table<Session>;
 }
 
-impl sessionQueryTableAccess for __sdk::QueryTableAccessor {
-    fn session(&self) -> __sdk::__query_builder::Table<Session> {
-        __sdk::__query_builder::Table::new("session")
+impl my_sessionQueryTableAccess for __sdk::QueryTableAccessor {
+    fn my_session(&self) -> __sdk::__query_builder::Table<Session> {
+        __sdk::__query_builder::Table::new("my_session")
     }
 }
