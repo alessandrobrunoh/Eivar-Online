@@ -238,7 +238,15 @@ pub fn update_camera_occlusion(
 
     for (transform, aabb, mut fade) in occluders.iter_mut() {
         let blocking = match aabb {
-            Some(aabb) => segment_hits_aabb(camera_pos, focus_pos, transform, aabb),
+            Some(aabb) => {
+                // `segment_hits_aabb` opens with a matrix inverse, which is the
+                // expensive part and was being paid for every tagged prop on
+                // the map every frame. Almost none of them are anywhere near
+                // the camera-to-player segment, and a bounding-sphere reject
+                // costs a few multiplies.
+                near_segment(camera_pos, focus_pos, transform, aabb)
+                    && segment_hits_aabb(camera_pos, focus_pos, transform, aabb)
+            }
             // Bounds not computed yet: assume clear rather than ghosting a prop
             // that may be nowhere near the camera.
             None => false,
@@ -250,6 +258,38 @@ pub fn update_camera_occlusion(
             fade.opaque_alpha
         };
     }
+}
+
+/// Conservative bounding-sphere reject for [`segment_hits_aabb`].
+///
+/// Never rejects something the slab test would have accepted: the sphere is
+/// the AABB's circumscribed sphere, scaled by the node's largest world axis
+/// and widened by [`OCCLUSION_MARGIN_M`] the same way the slab test widens the
+/// box. A false accept just means paying for the exact test, which is what
+/// used to happen unconditionally.
+fn near_segment(start: Vec3, end: Vec3, transform: &GlobalTransform, aabb: &Aabb) -> bool {
+    // Must match what `segment_hits_aabb` actually tests against. That widens
+    // each *local* half-extent by `OCCLUSION_MARGIN_M / scale`, so in world
+    // space the box is `half_extents * scale + margin` per axis and the
+    // circumscribed sphere is the length of that vector. Adding the margin to
+    // the radius instead — the obvious-looking version — gives a sphere
+    // smaller than the box it is supposed to contain, and rejects real hits on
+    // the box's diagonals.
+    let scale = transform.compute_transform().scale.abs();
+    let world_half = Vec3::from(aabb.half_extents) * scale + Vec3::splat(OCCLUSION_MARGIN_M);
+    let radius = world_half.length();
+    let center = transform.transform_point(Vec3::from(aabb.center));
+
+    let segment = end - start;
+    let length_squared = segment.length_squared();
+    // Degenerate segment: fall back to a plain distance check.
+    if length_squared <= f32::EPSILON {
+        return center.distance_squared(start) <= radius * radius;
+    }
+    // Closest point on the segment to the sphere centre, clamped to the ends.
+    let t = ((center - start).dot(segment) / length_squared).clamp(0.0, 1.0);
+    let closest = start + segment * t;
+    closest.distance_squared(center) <= radius * radius
 }
 
 /// Whether the segment `start`→`end` intersects an entity's local-space box.
@@ -330,11 +370,17 @@ pub fn animate_occluder_fade(
 
         let fading = fade.target < fade.opaque_alpha - f32::EPSILON;
         if fading && fade.material == fade.shared {
-            if let Some(source) = materials.get(&fade.shared).cloned() {
-                let clone = materials.add(source);
-                fade.material = clone.clone();
-                commands.entity(entity).insert(MeshMaterial3d(clone));
-            }
+            // If the source has not streamed in yet there is nothing to clone,
+            // and falling through would write the fade onto `shared` itself —
+            // glTF materials are shared between instances, so every rock cut
+            // from the same material would ghost along with this one. Skip the
+            // frame instead; the asset lands and the fade starts a frame later.
+            let Some(source) = materials.get(&fade.shared).cloned() else {
+                continue;
+            };
+            let clone = materials.add(source);
+            fade.material = clone.clone();
+            commands.entity(entity).insert(MeshMaterial3d(clone));
         }
 
         let delta = (fade.target - fade.current).clamp(-step, step);
@@ -527,6 +573,58 @@ mod tests {
             .expect("system runs");
 
         assert_eq!(target_of(&world, entity), 1.0);
+    }
+
+    /// The cull in `update_camera_occlusion` is only sound if it never
+    /// rejects a box the exact test would have accepted. Swept over a grid of
+    /// positions rather than a couple of hand-picked ones, because a false
+    /// reject shows up as a prop that stops fading at one specific angle.
+    #[test]
+    fn the_bounding_sphere_never_rejects_what_the_slab_test_accepts() {
+        let camera = Vec3::new(0.0, 8.0, 10.0);
+        let focus = Vec3::new(0.0, 1.2, 0.0);
+
+        let mut checked = 0;
+        let mut accepted = 0;
+        for x in -12..=12 {
+            for z in -12..=12 {
+                for y in 0..=6 {
+                    let translation =
+                        Vec3::new(x as f32 * 0.75, y as f32 * 0.75, z as f32 * 0.75);
+                    let transform = GlobalTransform::from(Transform::from_translation(translation));
+                    let aabb = Aabb {
+                        center: Vec3A::ZERO,
+                        half_extents: Vec3A::new(0.5, 1.5, 0.5),
+                    };
+                    checked += 1;
+                    let exact = segment_hits_aabb(camera, focus, &transform, &aabb);
+                    if exact {
+                        accepted += 1;
+                        assert!(
+                            near_segment(camera, focus, &transform, &aabb),
+                            "cull rejected a box the slab test accepts at {translation:?}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(checked > 1000, "the sweep should be broad");
+        assert!(accepted > 0, "the sweep must contain real hits to be meaningful");
+    }
+
+    /// ...and it has to actually reject something, or it is not a cull.
+    #[test]
+    fn the_bounding_sphere_rejects_distant_boxes() {
+        let camera = Vec3::new(0.0, 8.0, 10.0);
+        let focus = Vec3::new(0.0, 1.2, 0.0);
+        let transform = GlobalTransform::from(Transform::from_translation(Vec3::new(
+            120.0, 0.0, -95.0,
+        )));
+        let aabb = Aabb {
+            center: Vec3A::ZERO,
+            half_extents: Vec3A::new(0.5, 1.5, 0.5),
+        };
+        assert!(!near_segment(camera, focus, &transform, &aabb));
     }
 
     #[test]
