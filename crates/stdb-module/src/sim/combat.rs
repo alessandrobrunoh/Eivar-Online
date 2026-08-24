@@ -27,7 +27,7 @@
 // How long a slain non-player entity stays a corpse. Taken from the domain
 // rather than restated, because it *was* restated — as 30 seconds, under a
 // comment claiming it matched the domain's 10.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use bevymmo_domain::content::items::default_items;
@@ -41,6 +41,7 @@ use bevymmo_domain::stats::formulas::damage_after_shield;
 use spacetimedb::{ReducerContext, Table, Uuid};
 
 use crate::rows::{equipment_from_rows, StatsRow, EQUIP_SLOTS};
+use crate::sim::throttle::Throttle;
 use crate::tables::{
     active_status, boss_state, crowd_control, damage_event, enemy_ai, entity_stats, equipment,
     game_entity, party_member, periodic_effect, player_stats, stat_modifier, BossPhaseRow,
@@ -267,10 +268,14 @@ fn tick_modifiers(ctx: &ReducerContext, dt: f32) -> Vec<u64> {
         ctx.db.stat_modifier().id().update(modifier);
     }
 
+    // A `HashSet` rather than `Vec::contains`: the caller rebuilds stats once
+    // per entity here, and a raid-wide AoE expiring on the same tick made the
+    // dedup quadratic in the number of expiring modifiers.
     let mut touched: Vec<u64> = Vec::new();
+    let mut seen: HashSet<u64> = HashSet::new();
     for modifier in expired {
         ctx.db.stat_modifier().id().delete(modifier.id);
-        if !touched.contains(&modifier.entity_id) {
+        if seen.insert(modifier.entity_id) {
             touched.push(modifier.entity_id);
         }
     }
@@ -312,7 +317,18 @@ fn tick_shields(ctx: &ReducerContext, dt: f32) {
 /// mana anywhere in the codebase. `entity_stats.current_mana` gives the number
 /// a home, so this is where the regeneration the stats were always describing
 /// actually happens.
+/// Mana regenerates once a second rather than every tick.
+///
+/// `regenerated_mana` is linear in `dt`, so this lands on exactly the same
+/// number (see `sim::throttle`). What it saves is the writing: `entity_stats`
+/// is `public`, so before this every entity below full mana produced twenty
+/// replicated row updates a second, for every connected client.
+static MANA_REGEN: Throttle = Throttle::from_millis(1_000);
+
 fn regenerate_mana(ctx: &ReducerContext, dt: f32) {
+    let Some(dt) = MANA_REGEN.due(dt) else {
+        return;
+    };
     let mut updates = Vec::new();
     for row in ctx.db.entity_stats().iter() {
         if row.stats.mana_regeneration <= 0.0 || row.current_mana >= row.stats.max_mana {

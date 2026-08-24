@@ -608,8 +608,8 @@ pub fn expire_stale_presence(ctx: &ReducerContext) {
     let stale: Vec<_> = ctx
         .db
         .player()
-        .iter()
-        .filter(|player| player.online)
+        .online()
+        .filter(&true)
         .filter(|player| {
             now.duration_since(player.last_seen)
                 .map(|elapsed| elapsed.as_secs() as i64 >= PRESENCE_TIMEOUT_SECONDS)

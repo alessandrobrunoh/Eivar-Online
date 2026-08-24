@@ -11,6 +11,7 @@ use spacetimedb::{reducer, ReducerContext, Table, Timestamp};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::sim;
+use crate::sim::throttle::Throttle;
 use crate::tables::{tick_stats, TickSchedule, TickStats};
 
 static ALLY_DUMMY_SEEDED: AtomicBool = AtomicBool::new(false);
@@ -23,6 +24,9 @@ static NPCS_SEEDED: AtomicBool = AtomicBool::new(false);
 /// otherwise produce one enormous `dt` and teleport every walking character to
 /// its destination in a single frame.
 const MAX_STEP_SECONDS: f32 = 0.25;
+
+/// How often stale-presence expiry runs. See `sim::throttle`.
+static PRESENCE_SWEEP: Throttle = Throttle::from_millis(1_000);
 
 /// Whether this invocation came from the scheduler rather than from a client.
 ///
@@ -78,7 +82,11 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) {
     sim::loot::step(ctx);
     sim::ai::step(ctx, dt);
 
-    crate::reducers::lifecycle::expire_stale_presence(ctx);
+    // A 15-second presence timeout does not need checking twenty times a
+    // second; each check walked every online player.
+    if PRESENCE_SWEEP.due(dt).is_some() {
+        crate::reducers::lifecycle::expire_stale_presence(ctx);
+    }
 }
 
 /// Advances the tick clock and returns the elapsed seconds since the last tick.

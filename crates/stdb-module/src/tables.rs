@@ -191,6 +191,12 @@ pub struct Player {
     pub entity_id: u64,
     /// Whether a connection is currently playing this character. Distinct
     /// from row existence: the character outlives the session.
+    ///
+    /// Indexed because the tick asks "who is online" several times a second
+    /// (`targets::online_character_ids`, `expire_stale_presence`), and without
+    /// an index each of those walks every character the database has ever
+    /// held, not the handful currently connected.
+    #[index(btree)]
     pub online: bool,
     pub last_seen: Timestamp,
 }
