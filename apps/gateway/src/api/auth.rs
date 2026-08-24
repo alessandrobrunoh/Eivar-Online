@@ -9,6 +9,7 @@
 //! what the module decided.
 
 use axum::extract::State;
+use axum::middleware;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -44,10 +45,25 @@ pub struct ProfileResponse {
     characters: Vec<CharacterSummary>,
 }
 
-pub fn router() -> Router<AppState> {
-    Router::new()
+/// Takes `state` rather than being state-agnostic like the other routers: the
+/// rate limiter is `middleware::from_fn_with_state`, which needs the value up
+/// front, not the `Router<AppState>` placeholder.
+pub fn router(state: AppState) -> Router<AppState> {
+    // Only `register` and `login` are throttled, via `route_layer` so the limit
+    // applies to these two paths and not to anything merged alongside them.
+    // `logout` and `profile` need a cookie the caller cannot guess, so a limit
+    // there would cost a browser polling `/profile` without costing an attacker
+    // anything.
+    let guessable = Router::new()
         .route("/v1/auth/register", post(register))
         .route("/v1/auth/login", post(login))
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            crate::api::rate_limit::limit_attempts,
+        ));
+
+    Router::new()
+        .merge(guessable)
         .route("/v1/auth/logout", post(logout))
         .route("/v1/profile", get(profile))
 }

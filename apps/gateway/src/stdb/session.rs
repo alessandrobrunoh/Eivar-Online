@@ -24,11 +24,27 @@ const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// timeout itself: this is a polling interval, not a deadline.
 const REAP_INTERVAL: Duration = Duration::from_secs(60);
 
+/// Live sessions one account may hold at once.
+///
+/// Every session is a real WebSocket to SpacetimeDB held for up to
+/// [`SESSION_IDLE_TIMEOUT`], so without a cap one account can open as many as
+/// it can issue logins for and pin them all for half an hour. The cap is
+/// per-account, not global, on purpose: a global cap with eviction would let
+/// one noisy account push everybody else's sessions out.
+///
+/// Sized for a person, not a single tab: a desktop browser, a phone, and a
+/// couple of stale tabs that have not been reaped yet all fit.
+const MAX_SESSIONS_PER_ACCOUNT: usize = 8;
+
 pub type SessionId = String;
 
 struct Entry {
     connection: GatewayConnection,
     last_seen: Instant,
+    /// Cached at insert. `GatewayConnection::account_id` reads it back out of
+    /// the replicated `session` table, which is a linear scan and is `None`
+    /// once the socket dies — neither of which suits an eviction check.
+    account_id: Option<u64>,
 }
 
 /// Cloning shares the same underlying map (via `Arc`) — cheap, and what
@@ -58,14 +74,33 @@ impl SessionStore {
     /// random UUID from [`Self::create`]; API-key sessions reuse this with a
     /// stable `ak:{sha256}` id so later Bearer requests reuse the socket.
     pub async fn insert(&self, id: SessionId, connection: GatewayConnection) {
-        self.entries.write().await.insert(
-            id,
-            Entry {
-                connection,
-                last_seen: Instant::now(),
-            },
-        );
+        let account_id = connection.account_id();
+        let evicted = {
+            let mut entries = self.entries.write().await;
+            entries.insert(
+                id.clone(),
+                Entry {
+                    connection,
+                    last_seen: Instant::now(),
+                    account_id,
+                },
+            );
+            let live: Vec<(SessionId, Option<u64>, Instant)> = entries
+                .iter()
+                .map(|(id, entry)| (id.clone(), entry.account_id, entry.last_seen))
+                .collect();
+            over_cap(&live, account_id, &id)
+        };
+
+        // Ended outside the lock: `end` takes the same write guard, and
+        // `logout` on the evicted connection is a network round-trip.
+        for id in evicted {
+            tracing::info!(session = %id, "evicting the account's oldest session");
+            self.end(&id).await;
+        }
     }
+
+
 
     /// The connection for `id`, refreshing its idle timer. `None` if `id` is
     /// unknown or was already reaped for inactivity.
@@ -113,5 +148,130 @@ impl SessionStore {
                 store.reap_idle().await;
             }
         });
+    }
+}
+
+/// Ids to evict so `account_id` is back within [`MAX_SESSIONS_PER_ACCOUNT`],
+/// oldest first, never including `keep`.
+///
+/// Anonymous sessions (`account_id` of `None`) are not capped: those are the
+/// `/public/*` directory handle and pre-authentication connections, not
+/// something a caller accumulates by logging in.
+///
+/// A free function over plain tuples rather than a method over the map, so the
+/// eviction arithmetic — the part where an off-by-one either evicts a session
+/// that should have lived or lets the cap drift upward — is testable without a
+/// live SpacetimeDB connection to put in an `Entry`.
+fn over_cap(
+    live: &[(SessionId, Option<u64>, Instant)],
+    account_id: Option<u64>,
+    keep: &str,
+) -> Vec<SessionId> {
+    let Some(account_id) = account_id else {
+        return Vec::new();
+    };
+
+    let mut owned: Vec<(SessionId, Instant)> = live
+        .iter()
+        .filter(|(id, owner, _)| *owner == Some(account_id) && id.as_str() != keep)
+        .map(|(id, _, last_seen)| (id.clone(), *last_seen))
+        .collect();
+
+    // `keep` is excluded above but still occupies one slot of the allowance.
+    let allowance = MAX_SESSIONS_PER_ACCOUNT.saturating_sub(1);
+    if owned.len() <= allowance {
+        return Vec::new();
+    }
+
+    owned.sort_by_key(|(_, last_seen)| *last_seen);
+    owned.truncate(owned.len() - allowance);
+    owned.into_iter().map(|(id, _)| id).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(id: &str, account: Option<u64>, age_secs: u64) -> (SessionId, Option<u64>, Instant) {
+        let base = Instant::now();
+        (
+            id.to_string(),
+            account,
+            base - Duration::from_secs(age_secs),
+        )
+    }
+
+    #[test]
+    fn an_account_under_the_cap_evicts_nothing() {
+        let live: Vec<_> = (0..MAX_SESSIONS_PER_ACCOUNT - 1)
+            .map(|n| session(&format!("s{n}"), Some(1), n as u64))
+            .collect();
+        assert!(over_cap(&live, Some(1), "s0").is_empty());
+    }
+
+    #[test]
+    fn the_oldest_session_goes_when_the_cap_is_exceeded() {
+        // `new` is the one just inserted; the rest are older, `old` oldest.
+        let live = vec![
+            session("new", Some(1), 0),
+            session("old", Some(1), 900),
+            session("mid", Some(1), 60),
+        ];
+        // Cap of 8 leaves room for all three, so nothing goes yet.
+        assert!(over_cap(&live, Some(1), "new").is_empty());
+
+        let mut many: Vec<_> = (0..MAX_SESSIONS_PER_ACCOUNT)
+            .map(|n| session(&format!("s{n}"), Some(1), (n as u64 + 1) * 10))
+            .collect();
+        many.push(session("new", Some(1), 0));
+        let evicted = over_cap(&many, Some(1), "new");
+        assert_eq!(evicted.len(), 1);
+        // Highest age_secs is the oldest.
+        assert_eq!(evicted[0], format!("s{}", MAX_SESSIONS_PER_ACCOUNT - 1));
+    }
+
+    #[test]
+    fn the_session_being_inserted_is_never_evicted() {
+        let mut live: Vec<_> = (0..MAX_SESSIONS_PER_ACCOUNT * 2)
+            .map(|n| session(&format!("s{n}"), Some(1), 10))
+            .collect();
+        live.push(session("new", Some(1), 0));
+        let evicted = over_cap(&live, Some(1), "new");
+        assert!(!evicted.iter().any(|id| id == "new"));
+    }
+
+    #[test]
+    fn one_account_cannot_evict_another() {
+        let mut live: Vec<_> = (0..MAX_SESSIONS_PER_ACCOUNT * 3)
+            .map(|n| session(&format!("attacker{n}"), Some(1), n as u64))
+            .collect();
+        live.push(session("victim", Some(2), 9_999));
+        live.push(session("new", Some(1), 0));
+
+        let evicted = over_cap(&live, Some(1), "new");
+        assert!(!evicted.is_empty(), "the noisy account is trimmed");
+        assert!(
+            !evicted.iter().any(|id| id == "victim"),
+            "another account's session must survive however old it is"
+        );
+    }
+
+    #[test]
+    fn anonymous_sessions_are_not_capped() {
+        let live: Vec<_> = (0..MAX_SESSIONS_PER_ACCOUNT * 5)
+            .map(|n| session(&format!("anon{n}"), None, n as u64))
+            .collect();
+        assert!(over_cap(&live, None, "anon0").is_empty());
+    }
+
+    #[test]
+    fn the_account_lands_exactly_on_the_cap() {
+        let mut live: Vec<_> = (0..MAX_SESSIONS_PER_ACCOUNT * 2)
+            .map(|n| session(&format!("s{n}"), Some(1), n as u64 + 1))
+            .collect();
+        live.push(session("new", Some(1), 0));
+        let evicted = over_cap(&live, Some(1), "new");
+        let survivors = live.len() - evicted.len();
+        assert_eq!(survivors, MAX_SESSIONS_PER_ACCOUNT);
     }
 }

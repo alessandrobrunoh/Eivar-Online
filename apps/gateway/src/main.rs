@@ -26,6 +26,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
 
 use bevymmo_app_support::settings::Settings;
+use api::rate_limit::RateLimiter;
 use stdb::directory::PlayerDirectory;
 use stdb::session::SessionStore;
 
@@ -49,6 +50,12 @@ struct AppState {
     cookie_secure: bool,
     /// Compiled game catalog (`bevymmo_content`), served on `/v1/public/catalog/*`.
     catalog: Arc<bevymmo_content::catalog::Catalog>,
+    /// Throttles `/v1/auth/*`. See `api::rate_limit`.
+    auth_limiter: RateLimiter,
+    /// Whether `X-Forwarded-For` may name the client. Only true when a reverse
+    /// proxy we control is the sole thing that can reach this port — otherwise
+    /// callers would pick their own rate-limit bucket.
+    trust_proxy_headers: bool,
 }
 
 #[tokio::main]
@@ -65,7 +72,11 @@ async fn main() {
     let sessions = SessionStore::new();
     sessions.spawn_reaper();
 
+    let auth_limiter = RateLimiter::new();
+    auth_limiter.spawn_reaper();
+
     let cors_origin_log = settings.gateway.cors_origin.clone();
+    let settings_trust_proxy = settings.gateway.trust_proxy_headers;
     let cors_origin: HeaderValue = settings
         .gateway
         .cors_origin
@@ -83,6 +94,8 @@ async fn main() {
         directory,
         cookie_secure: settings.gateway.cookie_secure,
         catalog: Arc::new(bevymmo_content::catalog::snapshot()),
+        auth_limiter,
+        trust_proxy_headers: settings.gateway.trust_proxy_headers,
     };
     let app = api::router(state).layer(cors_layer(cors_origin));
 
@@ -96,11 +109,17 @@ async fn main() {
         %bind_addr,
         cors_origin = %cors_origin_log,
         loopback_origins_allowed = cfg!(debug_assertions),
+        trust_proxy_headers = settings_trust_proxy,
         "BevyMMO gateway listening"
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+    // `into_make_service_with_connect_info` is what puts the peer address in
+    // the request extensions; `api::rate_limit` fails closed without it.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("gateway server crashed");
 }

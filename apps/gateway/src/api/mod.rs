@@ -23,6 +23,7 @@ pub mod api_keys;
 pub mod auth;
 pub mod characters;
 pub mod docs;
+pub(crate) mod rate_limit;
 pub mod error;
 pub mod public;
 
@@ -59,7 +60,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(welcome))
         .route("/health", get(health))
-        .merge(auth::router())
+        .merge(auth::router(state.clone()))
         .merge(api_keys::router())
         .merge(characters::router())
         .merge(public::router())
