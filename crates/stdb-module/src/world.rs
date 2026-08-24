@@ -184,8 +184,10 @@ fn decode(bytes: &[u8]) -> Result<MapManifest, String> {
             .and_then(|surface| surface.heightfield.as_mut())
             .ok_or_else(|| format!("heightfield names surface {index}, which has none"))?;
         heightfield.heights = samples
-            .chunks_exact(2)
-            .map(|pair| min + step * f32::from(u16::from_le_bytes([pair[0], pair[1]])))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| min + step * f32::from(u16::from_le_bytes(*pair)))
             .collect();
     }
 

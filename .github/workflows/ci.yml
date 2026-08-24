@@ -11,6 +11,16 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pinned, not `stable`. `-D warnings` turns every new clippy lint into a
+  # build failure, so a floating toolchain means an unrelated Rust release can
+  # break CI on code nobody touched — which happened on the first run of this
+  # workflow: `stable` was 1.98 while the project develops on 1.96, and
+  # `chunks_exact_to_as_chunks` (new in 1.98) failed the module job.
+  #
+  # This is the version the project is developed against. Bumping it is a
+  # deliberate commit that fixes whatever new lints come with it. To pin local
+  # toolchains to the same version as well, add a `rust-toolchain.toml`.
+  RUST_VERSION: "1.96.1"
 
 jobs:
   workspace:
@@ -19,18 +29,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: clippy
 
-      # Bevy pulls in ALSA and udev through `bevy_audio`/`bevy_winit`. The
-      # client crates fail to build without them even though CI never opens a
-      # window.
+      # `crates/presentation` and `crates/client` enable bevy's `default`
+      # features, so `bevy_winit` and `bevy_audio` are in the build and their
+      # `-sys` crates need real headers — even though CI never opens a window.
+      # The first run of this workflow failed on `wayland-sys` for exactly this
+      # reason: ALSA and udev alone are not enough.
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2-dev libudev-dev pkg-config
+            pkg-config \
+            libasound2-dev libudev-dev \
+            libwayland-dev libxkbcommon-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -53,8 +69,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: clippy
           targets: wasm32-unknown-unknown
 
