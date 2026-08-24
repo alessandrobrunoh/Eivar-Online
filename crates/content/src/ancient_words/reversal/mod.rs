@@ -83,6 +83,6 @@ mod tests {
 
     #[test]
     fn inversion_factor_is_negative() {
-        assert!(Reversal::INVERSION_FACTOR < 0.0);
+        const { assert!(Reversal::INVERSION_FACTOR < 0.0) };
     }
 }

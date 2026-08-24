@@ -741,7 +741,7 @@ mod tests {
         assert!((conic.stops[1].angle.unwrap() - std::f32::consts::PI).abs() < 0.001);
         assert_eq!(conic.stops[0].color, Color::NONE);
         assert_eq!(conic.stops[2].color, SPELL_CLOCK_DARK);
-        assert!(SPELL_ICON_INSET < 10.0);
+        const { assert!(SPELL_ICON_INSET < 10.0) };
     }
 
     #[test]

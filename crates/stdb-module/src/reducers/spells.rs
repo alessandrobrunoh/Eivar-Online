@@ -83,7 +83,7 @@ pub fn release_cast(
     let target_position = finite_target(target_position)?;
     let _ = (target_entity, target_position);
     let caster = caller_entity(ctx)?;
-    let Some(cast) = ctx.db.cast_state().entity_id().find(&caster.entity_id) else {
+    let Some(cast) = ctx.db.cast_state().entity_id().find(caster.entity_id) else {
         return Ok(());
     };
     if cast.spell_id != spell_id {
@@ -131,7 +131,7 @@ pub fn cast_weapon(
         .db
         .equipment()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| equipment_from_rows(&row.slots))
         .unwrap_or_default();
     let weapon = equipment
@@ -163,7 +163,7 @@ pub fn cast_weapon(
         .db
         .known_ancient_language()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| {
             known_ancient_language_from_rows(
                 &row.root_words,
@@ -237,7 +237,7 @@ pub fn cast_weapon(
                 .db
                 .known_ancient_language()
                 .character_id()
-                .find(&character_id)
+                .find(character_id)
                 .map(|row| {
                     known_ancient_language_from_rows(
                         &row.root_words,
@@ -366,7 +366,7 @@ pub fn armor_cast(
         .db
         .equipment()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| equipment_from_rows(&row.slots))
         .unwrap_or_default();
     let armor = equipment
@@ -396,7 +396,7 @@ pub fn armor_cast(
         .db
         .known_ancient_language()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .ok_or_else(|| "ancient language has not been initialized".to_string())?;
     let language = known_ancient_language_from_rows(
         &language_row.root_words,
@@ -612,7 +612,7 @@ fn face_target(
 /// Cancels whatever the caster was casting, so starting a spell always replaces
 /// the previous one rather than racing it.
 fn cancel_active_cast(ctx: &ReducerContext, entity_id: u64) {
-    if let Some(active) = ctx.db.cast_state().entity_id().find(&entity_id) {
+    if let Some(active) = ctx.db.cast_state().entity_id().find(entity_id) {
         spells::end_cast(ctx, entity_id, active.spell_id, true);
     }
     crate::sim::gathering::cancel_session(ctx, entity_id);

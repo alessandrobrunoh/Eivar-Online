@@ -55,10 +55,10 @@ pub fn cancel_session(ctx: &ReducerContext, entity_id: u64) {
         .db
         .gather_session()
         .entity_id()
-        .find(&entity_id)
+        .find(entity_id)
         .is_some()
     {
-        ctx.db.gather_session().entity_id().delete(&entity_id);
+        ctx.db.gather_session().entity_id().delete(entity_id);
     }
 }
 
@@ -191,14 +191,14 @@ fn gathering_stats(ctx: &ReducerContext, entity_id: u64, config: &ResourceConfig
         .db
         .entity_stats()
         .entity_id()
-        .find(&entity_id)
+        .find(entity_id)
         .map(|row| (row.stats.gathering_speed, row.stats.gathering_bonus))
         .unwrap_or((0.0, 0.0));
     let character_id = ctx
         .db
         .game_entity()
         .entity_id()
-        .find(&entity_id)
+        .find(entity_id)
         .and_then(|row| row.owner_character_id);
     let (tool_speed, tool_bonus) = matching_tool_bonuses(ctx, character_id, config);
     (base_speed + tool_speed, base_bonus + tool_bonus)
@@ -212,7 +212,7 @@ fn matching_tool_bonuses(
     let Some(character_id) = character_id else {
         return (0.0, 0.0);
     };
-    let Some(row) = ctx.db.equipment().character_id().find(&character_id) else {
+    let Some(row) = ctx.db.equipment().character_id().find(character_id) else {
         return (0.0, 0.0);
     };
     let equipped_gear = equipment_from_rows(&row.slots);
@@ -248,7 +248,7 @@ fn unit_interval_roll(ctx: &ReducerContext) -> f32 {
 }
 
 fn advance_session(ctx: &ReducerContext, mut session: GatherSession, dt: f32) {
-    let Some(gatherer) = ctx.db.game_entity().entity_id().find(&session.entity_id) else {
+    let Some(gatherer) = ctx.db.game_entity().entity_id().find(session.entity_id) else {
         cancel_session(ctx, session.entity_id);
         return;
     };
@@ -258,7 +258,7 @@ fn advance_session(ctx: &ReducerContext, mut session: GatherSession, dt: f32) {
             .db
             .cast_state()
             .entity_id()
-            .find(&gatherer.entity_id)
+            .find(gatherer.entity_id)
             .is_some()
     {
         cancel_session(ctx, session.entity_id);
@@ -278,7 +278,7 @@ fn advance_session(ctx: &ReducerContext, mut session: GatherSession, dt: f32) {
         .db
         .game_entity()
         .entity_id()
-        .find(&session.node_entity_id)
+        .find(session.node_entity_id)
     else {
         cancel_session(ctx, session.entity_id);
         return;
@@ -287,7 +287,7 @@ fn advance_session(ctx: &ReducerContext, mut session: GatherSession, dt: f32) {
         .db
         .resource_node()
         .entity_id()
-        .find(&session.node_entity_id)
+        .find(session.node_entity_id)
     else {
         cancel_session(ctx, session.entity_id);
         return;

@@ -77,7 +77,7 @@ pub fn step(ctx: &ReducerContext) {
             .db
             .active_status()
             .id()
-            .find(&effect.origin_status_instance_id)
+            .find(effect.origin_status_instance_id)
             .is_some();
         if is_orphan_child(parent_alive) {
             orphans.push(effect.id);
@@ -92,7 +92,7 @@ pub fn step(ctx: &ReducerContext) {
     }
 
     for id in orphans {
-        ctx.db.crowd_control().id().delete(&id);
+        ctx.db.crowd_control().id().delete(id);
     }
 
     // Duplicates are harmless: the second visit finds nothing left to cancel.
@@ -128,7 +128,7 @@ pub(crate) fn materialize(
                 .db
                 .crowd_control()
                 .origin_status_instance_id()
-                .find(&origin_status_instance_id);
+                .find(origin_status_instance_id);
             match existing {
                 Some(effect) => {
                     ctx.db.crowd_control().id().update(CrowdControl {
@@ -173,7 +173,7 @@ pub(crate) fn sync_timer(
         .db
         .crowd_control()
         .origin_status_instance_id()
-        .find(&origin_status_instance_id)
+        .find(origin_status_instance_id)
     else {
         return;
     };
@@ -195,11 +195,11 @@ pub(crate) fn remove_owned(ctx: &ReducerContext, origin_status_instance_id: u64)
         .db
         .crowd_control()
         .origin_status_instance_id()
-        .find(&origin_status_instance_id)
+        .find(origin_status_instance_id)
     else {
         return;
     };
-    ctx.db.crowd_control().id().delete(&row.id);
+    ctx.db.crowd_control().id().delete(row.id);
 }
 
 /// Whether `entity_id` is under an effect that suppresses *all* action.

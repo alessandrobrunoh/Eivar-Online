@@ -83,7 +83,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) {
 
 /// Advances the tick clock and returns the elapsed seconds since the last tick.
 fn advance_clock(ctx: &ReducerContext, now: Timestamp) -> f32 {
-    match ctx.db.tick_stats().id().find(&0) {
+    match ctx.db.tick_stats().id().find(0) {
         Some(stats) => {
             let dt = now
                 .duration_since(stats.last_tick)

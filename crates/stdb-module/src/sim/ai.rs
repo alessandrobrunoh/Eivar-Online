@@ -150,7 +150,7 @@ fn collect_actors(ctx: &ReducerContext) -> Actors {
 // ---------------------------------------------------------------------------
 
 fn config_for(ctx: &ReducerContext, entity_id: u64) -> Option<EnemyConfig> {
-    let row = ctx.db.enemy_ai().entity_id().find(&entity_id)?;
+    let row = ctx.db.enemy_ai().entity_id().find(entity_id)?;
     world::enemy_config_for(&row.kind_id)
 }
 
@@ -619,7 +619,7 @@ fn run_rotation(
             skipped.push(entry.ability_id.as_str().to_string());
             continue;
         };
-        let Some(mut caster) = ctx.db.game_entity().entity_id().find(&entity_id) else {
+        let Some(mut caster) = ctx.db.game_entity().entity_id().find(entity_id) else {
             return;
         };
         if let Some(aim) = target_position {
@@ -711,7 +711,7 @@ pub fn accrue_threat(ctx: &ReducerContext, target: u64, source: u64, effective: 
 }
 
 fn threat_policy_for(ctx: &ReducerContext, target: u64) -> Option<ThreatPolicy> {
-    if ctx.db.boss_state().entity_id().find(&target).is_some() {
+    if ctx.db.boss_state().entity_id().find(target).is_some() {
         return Some(ThreatPolicy::Table);
     }
     config_for(ctx, target).map(|config| config.threat)
@@ -744,7 +744,7 @@ fn remember_sticky(ctx: &ReducerContext, combatant: u64, target: u64) {
         if row.target_entity == target {
             have_target = true;
         } else {
-            ctx.db.threat().id().delete(&row.id);
+            ctx.db.threat().id().delete(row.id);
         }
     }
     if !have_target {
@@ -766,7 +766,7 @@ pub fn clear_threat(ctx: &ReducerContext, combatant: u64) {
         .map(|row| row.id)
         .collect();
     for id in ids {
-        ctx.db.threat().id().delete(&id);
+        ctx.db.threat().id().delete(id);
     }
 }
 
@@ -906,7 +906,7 @@ fn living_player_by_id(
     online: &std::collections::HashSet<spacetimedb::Uuid>,
     entity_id: u64,
 ) -> Option<PlayerRef> {
-    let entity = ctx.db.game_entity().entity_id().find(&entity_id)?;
+    let entity = ctx.db.game_entity().entity_id().find(entity_id)?;
     let online_flag = entity.owner_character_id.map(|id| online.contains(&id));
     if !targets::is_online_living_player(entity.kind, entity.state, online_flag) {
         return None;

@@ -30,7 +30,7 @@ pub fn start_gather(ctx: &ReducerContext, node_entity_id: u64) -> Result<(), Str
         .db
         .game_entity()
         .entity_id()
-        .find(&node_entity_id)
+        .find(node_entity_id)
         .ok_or_else(|| "that resource is gone".to_string())?;
     if node_entity.kind != EntityKindRow::ResourceNode {
         return Err("that is not a resource".to_string());
@@ -40,7 +40,7 @@ pub fn start_gather(ctx: &ReducerContext, node_entity_id: u64) -> Result<(), Str
         .db
         .resource_node()
         .entity_id()
-        .find(&node_entity_id)
+        .find(node_entity_id)
         .ok_or_else(|| "that resource is gone".to_string())?;
     let node = gathering::regen_node(ctx, node);
     let definition = resource_definition(&node.kind_id)
@@ -75,7 +75,7 @@ pub fn start_gather(ctx: &ReducerContext, node_entity_id: u64) -> Result<(), Str
         return Err("inventory is full".to_string());
     }
 
-    if let Some(active) = ctx.db.cast_state().entity_id().find(&caller.entity_id) {
+    if let Some(active) = ctx.db.cast_state().entity_id().find(caller.entity_id) {
         spells::end_cast(ctx, caller.entity_id, active.spell_id, true);
     }
     gathering::cancel_session(ctx, caller.entity_id);

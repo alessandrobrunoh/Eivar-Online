@@ -187,7 +187,7 @@ pub fn login(ctx: &ReducerContext, email: String, password: String) -> Result<()
 /// the caller was never authenticated.
 #[reducer]
 pub fn logout(ctx: &ReducerContext) -> Result<(), String> {
-    ctx.db.session().identity().delete(&ctx.sender());
+    ctx.db.session().identity().delete(ctx.sender());
     Ok(())
 }
 
@@ -198,7 +198,7 @@ pub fn caller_session(ctx: &ReducerContext) -> Result<Session, String> {
     ctx.db
         .session()
         .identity()
-        .find(&ctx.sender())
+        .find(ctx.sender())
         .ok_or_else(|| "not authenticated; call `login` or `register` first".to_string())
 }
 
@@ -215,7 +215,7 @@ pub(crate) fn bind_session(ctx: &ReducerContext, account_id: u64) {
         .db
         .session()
         .identity()
-        .find(&identity)
+        .find(identity)
         .filter(|existing| existing.account_id == account_id)
         .and_then(|existing| existing.character_id);
 
@@ -225,7 +225,7 @@ pub(crate) fn bind_session(ctx: &ReducerContext, account_id: u64) {
         character_id,
         authenticated_at: ctx.timestamp,
     };
-    if ctx.db.session().identity().find(&identity).is_some() {
+    if ctx.db.session().identity().find(identity).is_some() {
         ctx.db.session().identity().update(row);
     } else {
         ctx.db.session().insert(row);

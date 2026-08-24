@@ -28,7 +28,7 @@ pub fn move_to(ctx: &ReducerContext, x: f32, y: f32, z: f32) -> Result<(), Strin
     if entity.state == EntityStateRow::Dead {
         return Err("dead characters do not walk".to_string());
     }
-    let lock = match ctx.db.cast_state().entity_id().find(&entity.entity_id) {
+    let lock = match ctx.db.cast_state().entity_id().find(entity.entity_id) {
         Some(cast) => match cast.kind {
             CastKindRow::Instant => MovementLock::None,
             CastKindRow::CastTime => MovementLock::CastTime,

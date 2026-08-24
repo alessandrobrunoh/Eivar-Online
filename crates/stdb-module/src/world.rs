@@ -507,7 +507,7 @@ pub fn ensure_resource_nodes(ctx: &ReducerContext) -> bool {
                 .db
                 .game_entity()
                 .entity_id()
-                .find(&existing.entity_id)
+                .find(existing.entity_id)
                 .is_some()
             {
                 continue;
@@ -809,7 +809,7 @@ pub fn gm_clear_prop_override(
         return Err(format!("no override on {map_id:?}/{prop_id:?}"));
     }
     for id in ids {
-        ctx.db.prop_override().id().delete(&id);
+        ctx.db.prop_override().id().delete(id);
     }
     Ok(())
 }
@@ -834,10 +834,10 @@ pub fn gm_reseed_world(ctx: &ReducerContext) -> Result<(), String> {
         .map(|entity| entity.entity_id)
         .collect();
     for entity_id in seeded {
-        ctx.db.boss_state().entity_id().delete(&entity_id);
-        ctx.db.enemy_ai().entity_id().delete(&entity_id);
-        ctx.db.entity_stats().entity_id().delete(&entity_id);
-        ctx.db.game_entity().entity_id().delete(&entity_id);
+        ctx.db.boss_state().entity_id().delete(entity_id);
+        ctx.db.enemy_ai().entity_id().delete(entity_id);
+        ctx.db.entity_stats().entity_id().delete(entity_id);
+        ctx.db.game_entity().entity_id().delete(entity_id);
     }
 
     seed(ctx);

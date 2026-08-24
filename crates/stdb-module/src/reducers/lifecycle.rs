@@ -103,57 +103,57 @@ fn clear_runtime_state(ctx: &ReducerContext) {
     let loot_slot_ids: Vec<_> = ctx.db.loot_bag_slot().iter().map(|row| row.id).collect();
 
     for id in projectile_ids {
-        ctx.db.projectile().id().delete(&id);
+        ctx.db.projectile().id().delete(id);
     }
     for id in aoe_ids {
-        ctx.db.aoe_region().id().delete(&id);
+        ctx.db.aoe_region().id().delete(id);
     }
     for id in crowd_control_ids {
-        ctx.db.crowd_control().id().delete(&id);
+        ctx.db.crowd_control().id().delete(id);
     }
     for id in active_status_ids {
-        ctx.db.active_status().id().delete(&id);
+        ctx.db.active_status().id().delete(id);
     }
     for id in modifier_ids {
-        ctx.db.stat_modifier().id().delete(&id);
+        ctx.db.stat_modifier().id().delete(id);
     }
     for id in threat_ids {
-        ctx.db.threat().id().delete(&id);
+        ctx.db.threat().id().delete(id);
     }
     for entity_id in cast_entity_ids {
-        ctx.db.cast_state().entity_id().delete(&entity_id);
+        ctx.db.cast_state().entity_id().delete(entity_id);
     }
     for id in cooldown_ids {
-        ctx.db.cooldown().id().delete(&id);
+        ctx.db.cooldown().id().delete(id);
     }
     for entity_id in boss_entity_ids {
-        ctx.db.boss_state().entity_id().delete(&entity_id);
+        ctx.db.boss_state().entity_id().delete(entity_id);
     }
     // Non-player entities are respawned from the map manifest by `world::seed`.
     for entity_id in seeded_entity_ids {
-        ctx.db.entity_stats().entity_id().delete(&entity_id);
-        ctx.db.game_entity().entity_id().delete(&entity_id);
+        ctx.db.entity_stats().entity_id().delete(entity_id);
+        ctx.db.game_entity().entity_id().delete(entity_id);
     }
     for id in tick_stat_ids {
-        ctx.db.tick_stats().id().delete(&id);
+        ctx.db.tick_stats().id().delete(id);
     }
     for entity_id in npc_ids {
-        ctx.db.npc().entity_id().delete(&entity_id);
+        ctx.db.npc().entity_id().delete(entity_id);
     }
     for entity_id in enemy_ai_ids {
-        ctx.db.enemy_ai().entity_id().delete(&entity_id);
+        ctx.db.enemy_ai().entity_id().delete(entity_id);
     }
     for entity_id in gather_entity_ids {
-        ctx.db.gather_session().entity_id().delete(&entity_id);
+        ctx.db.gather_session().entity_id().delete(entity_id);
     }
     for entity_id in craft_entity_ids {
-        ctx.db.craft_session().entity_id().delete(&entity_id);
+        ctx.db.craft_session().entity_id().delete(entity_id);
     }
     for id in loot_slot_ids {
-        ctx.db.loot_bag_slot().id().delete(&id);
+        ctx.db.loot_bag_slot().id().delete(id);
     }
     for id in loot_bag_ids {
-        ctx.db.loot_bag().id().delete(&id);
+        ctx.db.loot_bag().id().delete(id);
     }
 }
 
@@ -195,7 +195,7 @@ pub fn client_connected(ctx: &ReducerContext) {
 #[reducer(client_disconnected)]
 pub fn client_disconnected(ctx: &ReducerContext) {
     if let Some(character) = active_character(ctx) {
-        if let Some(entity) = ctx.db.game_entity().entity_id().find(&character.entity_id) {
+        if let Some(entity) = ctx.db.game_entity().entity_id().find(character.entity_id) {
             ctx.db.game_entity().entity_id().update(GameEntity {
                 move_target: None,
                 state: EntityStateRow::Idle,
@@ -208,7 +208,7 @@ pub fn client_disconnected(ctx: &ReducerContext) {
             ..character
         });
     }
-    ctx.db.session().identity().delete(&ctx.sender());
+    ctx.db.session().identity().delete(ctx.sender());
 }
 
 /// Selects an existing character by name, or creates one, for the caller's
@@ -253,7 +253,7 @@ pub fn join(ctx: &ReducerContext, display_name: String) -> Result<(), String> {
     }
 
     let existing_count = ctx.db.player().account_id().filter(&account_id).count();
-    if existing_count >= MAX_CHARACTERS_PER_ACCOUNT {
+    if at_character_cap(existing_count) {
         return Err(format!(
             "an account may have at most {MAX_CHARACTERS_PER_ACCOUNT} characters"
         ));
@@ -367,7 +367,7 @@ pub fn join(ctx: &ReducerContext, display_name: String) -> Result<(), String> {
 /// `Session` update with a different value for this one field.
 fn set_active_character(ctx: &ReducerContext, character_id: Option<Uuid>) {
     let identity = ctx.sender();
-    if let Some(session_row) = ctx.db.session().identity().find(&identity) {
+    if let Some(session_row) = ctx.db.session().identity().find(identity) {
         ctx.db.session().identity().update(Session {
             character_id,
             ..session_row
@@ -396,7 +396,7 @@ pub fn leave(ctx: &ReducerContext) -> Result<(), String> {
     let Some(character) = active_character(ctx) else {
         return Ok(());
     };
-    if let Some(entity) = ctx.db.game_entity().entity_id().find(&character.entity_id) {
+    if let Some(entity) = ctx.db.game_entity().entity_id().find(character.entity_id) {
         ctx.db.game_entity().entity_id().update(GameEntity {
             move_target: None,
             state: EntityStateRow::Idle,
@@ -430,7 +430,7 @@ pub fn delete_character(ctx: &ReducerContext, character_id: Uuid) -> Result<(), 
         .db
         .player()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .ok_or_else(|| "no character with this id".to_string())?;
     if character.account_id != session_row.account_id {
         return Err("that character does not belong to your account".to_string());
@@ -506,47 +506,47 @@ fn delete_character_rows(ctx: &ReducerContext, character: &Player) {
         .collect();
 
     for id in cooldown_ids {
-        ctx.db.cooldown().id().delete(&id);
+        ctx.db.cooldown().id().delete(id);
     }
     for id in crowd_control_ids {
-        ctx.db.crowd_control().id().delete(&id);
+        ctx.db.crowd_control().id().delete(id);
     }
     for id in active_status_ids {
-        ctx.db.active_status().id().delete(&id);
+        ctx.db.active_status().id().delete(id);
     }
     for id in stat_modifier_ids {
-        ctx.db.stat_modifier().id().delete(&id);
+        ctx.db.stat_modifier().id().delete(id);
     }
     for id in periodic_effect_ids {
-        ctx.db.periodic_effect().id().delete(&id);
+        ctx.db.periodic_effect().id().delete(id);
     }
     for id in threat_ids {
-        ctx.db.threat().id().delete(&id);
+        ctx.db.threat().id().delete(id);
     }
     for id in resonance_ids {
-        ctx.db.resonance().id().delete(&id);
+        ctx.db.resonance().id().delete(id);
     }
 
-    ctx.db.cast_state().entity_id().delete(&entity_id);
-    ctx.db.entity_stats().entity_id().delete(&entity_id);
-    ctx.db.game_entity().entity_id().delete(&entity_id);
+    ctx.db.cast_state().entity_id().delete(entity_id);
+    ctx.db.entity_stats().entity_id().delete(entity_id);
+    ctx.db.game_entity().entity_id().delete(entity_id);
 
-    ctx.db.equipment().character_id().delete(&character_id);
-    ctx.db.inventory().character_id().delete(&character_id);
-    ctx.db.hotbar().character_id().delete(&character_id);
+    ctx.db.equipment().character_id().delete(character_id);
+    ctx.db.inventory().character_id().delete(character_id);
+    ctx.db.hotbar().character_id().delete(character_id);
     ctx.db
         .known_ancient_language()
         .character_id()
-        .delete(&character_id);
-    ctx.db.player_stats().character_id().delete(&character_id);
+        .delete(character_id);
+    ctx.db.player_stats().character_id().delete(character_id);
     ctx.db
         .character_wallet()
         .character_id()
-        .delete(&character_id);
+        .delete(character_id);
 
     crate::reducers::parties::forget_deleted_character(ctx, character);
 
-    ctx.db.player().character_id().delete(&character_id);
+    ctx.db.player().character_id().delete(character_id);
 }
 
 /// Resolves the caller's active character, if this connection is
@@ -554,9 +554,9 @@ fn delete_character_rows(ctx: &ReducerContext, character: &Player) {
 /// errors — it is for lifecycle hooks (`client_connected`, `heartbeat`) where
 /// "nothing to do yet" is a normal, silent case rather than a rejection.
 fn active_character(ctx: &ReducerContext) -> Option<Player> {
-    let session_row = ctx.db.session().identity().find(&ctx.sender())?;
+    let session_row = ctx.db.session().identity().find(ctx.sender())?;
     let character_id = session_row.character_id?;
-    ctx.db.player().character_id().find(&character_id)
+    ctx.db.player().character_id().find(character_id)
 }
 
 /// Resolves the caller's active character, or explains why there isn't one.
@@ -572,7 +572,7 @@ pub fn caller_entity(ctx: &ReducerContext) -> Result<GameEntity, String> {
     ctx.db
         .game_entity()
         .entity_id()
-        .find(&character.entity_id)
+        .find(character.entity_id)
         .ok_or_else(|| "character has no entity".to_string())
 }
 
@@ -621,7 +621,7 @@ pub fn expire_stale_presence(ctx: &ReducerContext) {
 
     for player in stale {
         log::info!("{} timed out", player.display_name);
-        if let Some(entity) = ctx.db.game_entity().entity_id().find(&player.entity_id) {
+        if let Some(entity) = ctx.db.game_entity().entity_id().find(player.entity_id) {
             ctx.db.game_entity().entity_id().update(GameEntity {
                 move_target: None,
                 state: if entity.state == EntityStateRow::Dead {
@@ -632,7 +632,7 @@ pub fn expire_stale_presence(ctx: &ReducerContext) {
                 ..entity
             });
         }
-        ctx.db.cast_state().entity_id().delete(&player.entity_id);
+        ctx.db.cast_state().entity_id().delete(player.entity_id);
         ctx.db.player().character_id().update(Player {
             online: false,
             ..player
@@ -640,14 +640,30 @@ pub fn expire_stale_presence(ctx: &ReducerContext) {
     }
 }
 
+/// Whether an account holding `existing_count` characters may create another.
+///
+/// Split out of [`join`] so the boundary is testable without a
+/// `ReducerContext`: the off-by-one that matters here (`>` instead of `>=`,
+/// which would silently allow one character too many) is invisible to a test
+/// that can only re-read the constant.
+fn at_character_cap(existing_count: usize) -> bool {
+    existing_count >= MAX_CHARACTERS_PER_ACCOUNT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn character_cap_boundary() {
-        assert!(2 < MAX_CHARACTERS_PER_ACCOUNT);
-        assert!(MAX_CHARACTERS_PER_ACCOUNT <= MAX_CHARACTERS_PER_ACCOUNT);
-        assert_eq!(MAX_CHARACTERS_PER_ACCOUNT, 3);
+    fn character_cap_admits_accounts_below_the_limit() {
+        for count in 0..MAX_CHARACTERS_PER_ACCOUNT {
+            assert!(!at_character_cap(count), "{count} characters must still fit");
+        }
+    }
+
+    #[test]
+    fn character_cap_rejects_at_and_above_the_limit() {
+        assert!(at_character_cap(MAX_CHARACTERS_PER_ACCOUNT));
+        assert!(at_character_cap(MAX_CHARACTERS_PER_ACCOUNT + 1));
     }
 }

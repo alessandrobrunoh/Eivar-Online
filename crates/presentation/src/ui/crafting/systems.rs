@@ -1,5 +1,6 @@
 //! Click-to-open crafter list, recipe confirm, and start_craft.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevymmo_client::pointer::{hud_wants_pointer, PointerOnHud};
@@ -28,20 +29,29 @@ use bevymmo_client::local_player::LocalPlayer;
 
 const NPC_SELECT_RADIUS: f32 = 1.2;
 
+/// Everything `spawn_craft_list` needs to draw a card, bundled because these
+/// three already travel together into it. Bevy systems earn their parameter
+/// count honestly, but `clippy.toml` draws the line in the mid-teens — see its
+/// comment — and this system had crossed it.
+#[derive(SystemParam)]
+pub struct CraftCardAssets<'w> {
+    theme: Res<'w, UiTheme>,
+    asset_server: Res<'w, AssetServer>,
+    item_registry: Res<'w, ItemRegistry>,
+}
+
 pub fn crafter_npc_on_click(
     mut commands: Commands,
     mouse: Res<ButtonInput<MouseButton>>,
     pointer_on_hud: Res<PointerOnHud>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &Transform), With<Camera3d>>,
-    theme: Res<UiTheme>,
-    item_registry: Res<ItemRegistry>,
+    card: CraftCardAssets,
     placeables: Option<Res<PlaceableRegistry>>,
     entity_query: Query<(Entity, &Position, &EntityKind, Option<&NpcKind>), With<GameEntity>>,
     name_query: Query<&bevymmo_gameplay::entity::components::PlayerName>,
     existing_list: Query<Entity, With<CraftListCard>>,
     existing_dialog: Query<Entity, With<CraftDialogCard>>,
-    asset_server: Res<AssetServer>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
         return;
@@ -108,9 +118,9 @@ pub fn crafter_npc_on_click(
 
     spawn_craft_list(
         &mut commands,
-        &theme,
-        &asset_server,
-        &item_registry,
+        &card.theme,
+        &card.asset_server,
+        &card.item_registry,
         target_entity,
         &npc_name,
         categories,
