@@ -48,6 +48,44 @@ pub fn init(ctx: &ReducerContext) {
     log::info!("module initialised; tick every {TICK_INTERVAL_MS} ms");
 }
 
+/// Clears and re-seeds the transient half of the world, without touching a
+/// single character.
+///
+/// [`init`] does this too, but `init` only fires against an *empty* database.
+/// A normal `spacetime publish` over a live database never runs it, so a
+/// republish inherits whatever was mid-flight when the old module stopped:
+/// projectiles with no caster, casts that will never resolve, threat tables
+/// pointing at entities that no longer exist, loot bags past their expiry.
+/// Presence recovers on its own — `expire_stale_presence` reaps players whose
+/// heartbeat stopped — but nothing reaps the rest.
+///
+/// GM-gated and manual on purpose. Doing it automatically needs a signal that
+/// the module was replaced, and the two candidates are both worse than a
+/// deliberate command: `#[reducer(update)]` parses in 2.8.1 but is dropped
+/// before registration (`LifecycleReducer::Update` returns no lifecycle
+/// value), so it silently becomes an ordinary client-callable reducer that
+/// never runs on update; and keying off a module static assumes the WASM
+/// instance outlives a single reducer call, which is not something to bet a
+/// destructive sweep on without measuring it against a live host.
+///
+/// Characters, inventories, equipment, wallets and progression are untouched —
+/// `clear_runtime_state` only removes rows whose `owner_character_id` is
+/// `None`, plus the tables that model a live session.
+#[reducer]
+pub fn gm_reset_runtime_state(ctx: &ReducerContext) -> Result<(), String> {
+    world::require_gm(ctx)?;
+
+    clear_runtime_state(ctx);
+    crate::reducers::market::seed_markets(ctx);
+    world::seed(ctx);
+    // The tick remembers it has already spawned these; the sweep above just
+    // deleted them.
+    crate::tick::reset_seed_flags();
+
+    log::info!("runtime state cleared and re-seeded by {}", ctx.sender().to_hex());
+    Ok(())
+}
+
 /// Wipes everything that models a live session.
 ///
 /// Necessary because SpacetimeDB persists every table, including the ones that
@@ -56,7 +94,7 @@ pub fn init(ctx: &ReducerContext) {
 ///
 /// Player *characters* are deliberately untouched — those are the persistent
 /// half, and losing them on every publish would be the opposite of the point.
-fn clear_runtime_state(ctx: &ReducerContext) {
+pub(crate) fn clear_runtime_state(ctx: &ReducerContext) {
     // Table scans and mutations must be separate passes, even during init.
     let projectile_ids: Vec<_> = ctx.db.projectile().iter().map(|row| row.id).collect();
     let aoe_ids: Vec<_> = ctx.db.aoe_region().iter().map(|row| row.id).collect();

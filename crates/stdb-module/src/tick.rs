@@ -28,6 +28,16 @@ const MAX_STEP_SECONDS: f32 = 0.25;
 /// How often stale-presence expiry runs. See `sim::throttle`.
 static PRESENCE_SWEEP: Throttle = Throttle::from_millis(1_000);
 
+/// Forgets that the world has been seeded, so the next tick seeds it again.
+///
+/// Paired with `reducers::lifecycle::gm_reset_runtime_state`, which deletes the
+/// seeded entities these flags say already exist.
+pub(crate) fn reset_seed_flags() {
+    ALLY_DUMMY_SEEDED.store(false, Ordering::Relaxed);
+    RESOURCE_NODES_SEEDED.store(false, Ordering::Relaxed);
+    NPCS_SEEDED.store(false, Ordering::Relaxed);
+}
+
 /// Whether this invocation came from the scheduler rather than from a client.
 ///
 /// A `scheduled(...)` table does not make its reducer private: `game_tick` stays
