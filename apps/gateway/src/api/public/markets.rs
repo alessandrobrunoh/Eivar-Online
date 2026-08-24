@@ -4,16 +4,56 @@
 //! `market_sell_order`, `market_buy_order`). Isolation is a filter on
 //! `market_id`: Market 1's offers never appear on Market 2.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::Json;
 use axum::Router;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::api::error::AppError;
 use crate::stdb::module_bindings::{Market, MarketBuyOrder, MarketSellOrder};
 use crate::AppState;
+
+/// Rows returned when the caller does not ask for a size.
+const DEFAULT_PAGE: usize = 50;
+
+/// Upper bound for `limit`. An order book has no natural size — it is however
+/// many things players have listed — so returning all of it was an unbounded
+/// response shaped by user data. Mirrors `public::accounts`, which already
+/// paged for the same reason.
+const MAX_PAGE: usize = 200;
+
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct PageQuery {
+    /// Maximum rows to return (1-200, default 50). Out-of-range values are
+    /// clamped, not rejected.
+    pub limit: Option<usize>,
+    /// Rows to skip (default 0), for paging.
+    pub offset: Option<usize>,
+}
+
+impl PageQuery {
+    /// `(offset, limit)`, both already bounded.
+    fn bounds(&self) -> (usize, usize) {
+        (
+            self.offset.unwrap_or(0),
+            self.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE),
+        )
+    }
+
+    /// Applies the window to an already-sorted list.
+    fn apply<T>(&self, mut rows: Vec<T>) -> Vec<T> {
+        let (offset, limit) = self.bounds();
+        if offset >= rows.len() {
+            return Vec::new();
+        }
+        rows.drain(..offset);
+        rows.truncate(limit);
+        rows
+    }
+}
 
 /// One market as the public API exposes it.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -209,7 +249,10 @@ pub async fn list_markets(
     get,
     tag = "market",
     path = "/v1/public/markets/{market_id}/offers",
-    params(("market_id" = String, Path, description = "Stable market id (e.g. market_1)")),
+    params(
+        ("market_id" = String, Path, description = "Stable market id (e.g. market_1)"),
+        PageQuery,
+    ),
     responses(
         (status = 200, description = "Sell offers on this market only", body = Vec<SellOffer>),
         (status = 404, description = "No market with that id", body = crate::api::error::ErrorResponse),
@@ -219,6 +262,7 @@ pub async fn list_markets(
 pub async fn list_offers(
     State(state): State<AppState>,
     Path(market_id): Path<String>,
+    Query(page): Query<PageQuery>,
 ) -> Result<Json<Vec<SellOffer>>, AppError> {
     let (markets, orders, _) = market_snapshot(&state).await?;
     let summaries: Vec<MarketSummary> = markets.into_iter().map(MarketSummary::from).collect();
@@ -230,8 +274,10 @@ pub async fn list_offers(
         .into_iter()
         .map(SellOffer::from)
         .collect();
+    // Sorted before paging, so a page is a stable window on the book rather
+    // than an arbitrary subset of it.
     offers.sort_by(|a, b| a.price_gold.cmp(&b.price_gold).then(a.id.cmp(&b.id)));
-    Ok(Json(offers))
+    Ok(Json(page.apply(offers)))
 }
 
 /// Sell + buy book for one item on one market. 404 if the market id is unknown.
@@ -242,6 +288,7 @@ pub async fn list_offers(
     params(
         ("market_id" = String, Path, description = "Stable market id (e.g. market_1)"),
         ("item_id" = String, Path, description = "Catalog item id (e.g. sword)"),
+        PageQuery,
     ),
     responses(
         (status = 200, description = "Order book for this item on this market", body = ItemTicket),
@@ -252,6 +299,7 @@ pub async fn list_offers(
 pub async fn item_ticket(
     State(state): State<AppState>,
     Path((market_id, item_id)): Path<(String, String)>,
+    Query(page): Query<PageQuery>,
 ) -> Result<Json<ItemTicket>, AppError> {
     let (markets, orders, bids) = market_snapshot(&state).await?;
     let summaries: Vec<MarketSummary> = markets.into_iter().map(MarketSummary::from).collect();
@@ -270,11 +318,13 @@ pub async fn item_ticket(
         .map(BuyOffer::from)
         .collect();
     buy_orders.sort_by(|a, b| b.price_gold.cmp(&a.price_gold).then(a.id.cmp(&b.id)));
+    // The window applies to each side independently: a book with a thousand
+    // asks and two bids should still show both bids.
     Ok(Json(ItemTicket {
         market_id,
         item_id,
-        sell_orders,
-        buy_orders,
+        sell_orders: page.apply(sell_orders),
+        buy_orders: page.apply(buy_orders),
     }))
 }
 
@@ -296,6 +346,44 @@ fn unavailable(reason: String) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn page(limit: Option<usize>, offset: Option<usize>) -> PageQuery {
+        PageQuery { limit, offset }
+    }
+
+    #[test]
+    fn the_default_page_is_bounded() {
+        let rows: Vec<u32> = (0..1_000).collect();
+        assert_eq!(page(None, None).apply(rows).len(), DEFAULT_PAGE);
+    }
+
+    #[test]
+    fn limit_is_clamped_rather_than_rejected() {
+        let rows: Vec<u32> = (0..1_000).collect();
+        assert_eq!(page(Some(0), None).apply(rows.clone()).len(), 1);
+        assert_eq!(page(Some(9_999), None).apply(rows).len(), MAX_PAGE);
+    }
+
+    #[test]
+    fn offset_walks_the_book_without_gaps_or_repeats() {
+        let rows: Vec<u32> = (0..10).collect();
+        let first = page(Some(4), Some(0)).apply(rows.clone());
+        let second = page(Some(4), Some(4)).apply(rows.clone());
+        assert_eq!(first, vec![0, 1, 2, 3]);
+        assert_eq!(second, vec![4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn an_offset_past_the_end_is_an_empty_page_not_a_panic() {
+        let rows: Vec<u32> = (0..3).collect();
+        assert!(page(Some(10), Some(99)).apply(rows).is_empty());
+    }
+
+    #[test]
+    fn a_short_book_is_returned_whole() {
+        let rows: Vec<u32> = (0..3).collect();
+        assert_eq!(page(None, None).apply(rows.clone()), rows);
+    }
 
     fn record(id: u64, market_id: &str, item_id: &str) -> SellOrderRecord {
         SellOrderRecord {
