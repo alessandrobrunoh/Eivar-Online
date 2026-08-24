@@ -24,8 +24,35 @@ static NPCS_SEEDED: AtomicBool = AtomicBool::new(false);
 /// its destination in a single frame.
 const MAX_STEP_SECONDS: f32 = 0.25;
 
+/// Whether this invocation came from the scheduler rather than from a client.
+///
+/// A `scheduled(...)` table does not make its reducer private: `game_tick` stays
+/// part of the module's public API and any connected client can call it by name.
+/// The host invokes a scheduled reducer with the module's own identity as the
+/// sender, so that is what tells the two apart.
+///
+/// Without this, a client could drive the whole simulation step — status,
+/// crowd control, movement, gathering, crafting, spells, combat, loot, AI, over
+/// every entity, in one transaction — at whatever rate it liked. `advance_clock`
+/// bounds `dt`, so the *integrated* motion stays honest, but everything that is
+/// per-tick rather than per-`dt` (`crowd_control::step`, `loot::step`) would run
+/// as often as asked, and each call costs a full pass whatever `dt` says.
+fn invoked_by_scheduler(ctx: &ReducerContext) -> bool {
+    ctx.sender() == ctx.database_identity()
+}
+
 #[reducer]
 pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) {
+    // A rejected call cannot report anything: a scheduled reducer's signature
+    // has no `Result` to fail into. Log it and commit an empty transaction.
+    if !invoked_by_scheduler(ctx) {
+        log::warn!(
+            "game_tick called by {}; only the scheduler may run the tick",
+            ctx.sender().to_hex()
+        );
+        return;
+    }
+
     let dt = advance_clock(ctx, ctx.timestamp);
     if dt <= 0.0 {
         return;

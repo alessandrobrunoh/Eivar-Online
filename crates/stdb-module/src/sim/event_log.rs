@@ -129,8 +129,19 @@ pub fn record_cast(ctx: &ReducerContext, entity_id: u64, spell_id: String) {
 }
 
 /// Scheduled retention pass; never runs once per simulation frame.
+///
+/// Guarded like [`crate::tick::game_tick`]: `scheduled(...)` leaves the reducer
+/// callable by any client, and this one walks the whole `domain_event` table.
 #[reducer]
 pub fn prune(ctx: &ReducerContext, _schedule: crate::tables::DomainEventCleanupSchedule) {
+    if ctx.sender() != ctx.database_identity() {
+        log::warn!(
+            "prune called by {}; only the scheduler may run retention",
+            ctx.sender().to_hex()
+        );
+        return;
+    }
+
     let retention = ctx
         .db
         .domain_event_config()
