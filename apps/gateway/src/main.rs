@@ -65,6 +65,7 @@ async fn main() {
     let sessions = SessionStore::new();
     sessions.spawn_reaper();
 
+    let cors_origin_log = settings.gateway.cors_origin.clone();
     let cors_origin: HeaderValue = settings
         .gateway
         .cors_origin
@@ -89,7 +90,14 @@ async fn main() {
         .await
         .unwrap_or_else(|err| panic!("failed to bind gateway on {bind_addr}: {err}"));
 
-    info!(%bind_addr, "BevyMMO gateway listening");
+    // Logged because a rejected browser request shows up as an opaque CORS
+    // failure in the console with nothing on the server side to match it to.
+    info!(
+        %bind_addr,
+        cors_origin = %cors_origin_log,
+        loopback_origins_allowed = cfg!(debug_assertions),
+        "BevyMMO gateway listening"
+    );
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -103,10 +111,9 @@ async fn main() {
 // `GatewaySettings::cors_origin`'s doc comment.
 fn cors_layer(cors_origin: HeaderValue) -> CorsLayer {
     CorsLayer::new()
-        // Angular may move to a free port when 4200 is already occupied.
-        // Keep production restricted to the configured origin, but allow
-        // local Angular dev-server ports without falling back to `*` (which
-        // cannot be used with credentialed session cookies).
+        // Angular may move to a free port when 4200 is already occupied, so a
+        // debug build also accepts any loopback port. A release build accepts
+        // the configured origin and nothing else — see `is_local_dev_origin`.
         .allow_origin(AllowOrigin::predicate(move |origin, _| {
             origin == cors_origin || is_local_dev_origin(origin)
         }))
@@ -115,7 +122,21 @@ fn cors_layer(cors_origin: HeaderValue) -> CorsLayer {
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
 }
 
+/// Whether `origin` is a loopback dev server, and whether that is allowed to
+/// matter at all.
+///
+/// The loopback clause is gated on `debug_assertions` rather than being live
+/// everywhere. Paired with `allow_credentials(true)`, an ungated version means
+/// *any* page served from any port on a visitor's own machine — another dev
+/// server, a desktop app with a local web UI, a tool with a `127.0.0.1` panel —
+/// can make credentialed requests to the production gateway and read the
+/// replies. `apps/gateway/Dockerfile` builds with `--release`, so the deployed
+/// binary drops the clause; `cargo run` keeps it.
 fn is_local_dev_origin(origin: &HeaderValue) -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+
     let Ok(origin) = origin.to_str() else {
         return false;
     };
