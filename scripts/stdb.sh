@@ -23,8 +23,18 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODULE_PATH="$REPO_ROOT/crates/stdb-module"
 BINDINGS_OUT="$REPO_ROOT/crates/client/src/stdb/module_bindings"
 GATEWAY_BINDINGS_OUT="$REPO_ROOT/apps/gateway/src/stdb/module_bindings"
-SERVER="local"
-DATABASE="bevymmo"
+SERVER="${STDB_SERVER:-local}"
+# Local development database. Matches `spacetime_module` in
+# `config/default.toml`, which is what a locally-run client connects to.
+#
+# Production publishes a *different* name (`bevymmo-v2`, set via
+# `BEVYMMO__SPACETIME_MODULE` in `docker-compose.yml`) to a different host, so
+# the two are not meant to agree — but nothing said so, and reading the two
+# files side by side looks like a bug. Override both here when pointing this
+# script at something other than the local server:
+#
+#   STDB_SERVER=https://stdb.example.com STDB_DATABASE=bevymmo-v2 ./scripts/stdb.sh logs
+DATABASE="${STDB_DATABASE:-bevymmo}"
 
 usage() {
     sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
