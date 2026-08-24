@@ -59,6 +59,16 @@ pub struct GatewaySettings {
     #[serde(default)]
     pub cookie_secure: bool,
 
+    /// Whether `X-Forwarded-For` is allowed to name the client, for rate
+    /// limiting. `false` by default, and it must stay `false` unless a reverse
+    /// proxy under your control is the only thing that can reach the gateway's
+    /// port: the header is caller-supplied, so trusting it on a directly
+    /// exposed service lets anyone choose their own rate-limit bucket and pick
+    /// a fresh one per request. Set `true` alongside the `caddy` service in
+    /// `docker-compose.yml`.
+    #[serde(default)]
+    pub trust_proxy_headers: bool,
+
     /// Log output format: `"text"` (default, human-readable) or `"json"`
     /// (one JSON object per line, for a log collector). Production sets
     /// `json` via `GATEWAY__LOG_FORMAT`; an unknown value falls back to
@@ -89,9 +99,16 @@ impl Settings {
             .add_source(config::File::with_name("config/local").required(false))
             // Env vars override everything. `try_parsing(true)` lets
             // values like "1.0" be parsed as numbers where needed.
-            // Double underscores (e.g. `GATEWAY__BIND_ADDR`) map to nested fields.
+            // Double underscores map to nested fields, so the gateway's bind
+            // address is `BEVYMMO__GATEWAY__BIND_ADDR`.
+            //
+            // The `BEVYMMO` prefix is not cosmetic. Without it this source
+            // ingests *every* environment variable, so any name that collides
+            // with a field silently overrides the config — and a bare
+            // `GATEWAY` variable, which collides with the whole nested table,
+            // makes `try_deserialize` fail and takes the process down at boot.
             .add_source(
-                config::Environment::default()
+                config::Environment::with_prefix("BEVYMMO")
                     .separator("__")
                     .try_parsing(true),
             );

@@ -1,0 +1,53 @@
+# TLS termination and the only thing exposed to the internet.
+#
+# Everything behind this is published on 127.0.0.1 only (see
+# `docker-compose.yml`), so the plaintext ports stay reachable for local
+# debugging and unreachable from outside the host. That is not decoration: the
+# gateway trusts `X-Forwarded-For` for rate limiting when
+# `GATEWAY__TRUST_PROXY_HEADERS=true`, and that is only sound while this proxy
+# is the sole path in. Publish the gateway port again and a caller can pick its
+# own rate-limit bucket by setting the header itself.
+#
+# `SITE_DOMAIN` must be a real domain name. Let's Encrypt does not issue
+# certificates for bare IP addresses, so the previous `http://193.70.42.29:5001`
+# deployment cannot simply gain TLS — it needs a name pointed at that address.
+# Set it in `.env` next to the compose file.
+
+# The site: Angular frontend, with the gateway mounted under /v1 so the browser
+# talks to one origin. Same-origin means the session cookie needs no CORS
+# exception at all — `GATEWAY__CORS_ORIGIN` stays set for the desktop tooling
+# and any other site, but the frontend itself stops depending on it.
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# The gateway owns every versioned API path.
+	handle /v1/* {
+		reverse_proxy gateway:8081
+	}
+
+	# Everything else is the Angular app.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	header {
+		# The game is not embeddable and never frames anything.
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# Two years, so browsers refuse plaintext for this name even if the
+		# proxy is later misconfigured. Remove `preload` unless you actually
+		# submit the domain — it is hard to undo.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+	}
+}
+
+# SpacetimeDB gets its own name rather than a path prefix on the main site: the
+# SDK builds its own paths under the URI it is given (`/v1/database/<name>/...`),
+# so a prefix here would need rewriting on every route the SDK knows about. A
+# subdomain needs none, and the desktop client just points at
+# `wss://stdb.<domain>`.
+stdb.{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy spacetimedb:3000
+}

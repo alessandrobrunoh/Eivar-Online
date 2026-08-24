@@ -1,8 +1,16 @@
-# Copy this file to `config/local.toml` to override locally any
-# default/development/production value without committing secrets.
+# Copy this file to `config/local.toml` to override any
+# default/development/production value locally without committing it.
 #
-# `local.toml` is in .gitignore: put passwords, DB URLs with real
-# credentials here, and any local tweak.
-
-# Esempio:
-# database_url = "postgresql://user:password@host:port/db"
+# `local.toml` is gitignored: local tweaks and anything secret belong here.
+#
+# Example — point the client at a SpacetimeDB instance that is not the one in
+# `docker-compose.yml`:
+#
+# spacetime_uri = "ws://192.168.1.50:3000"
+# spacetime_module = "bevymmo-scratch"
+#
+# Anything can also be set through the environment, with a `BEVYMMO__` prefix
+# and `__` between nested keys:
+#
+#   BEVYMMO__SPACETIME_URI=ws://192.168.1.50:3000
+#   BEVYMMO__GATEWAY__BIND_ADDR=0.0.0.0:8081
