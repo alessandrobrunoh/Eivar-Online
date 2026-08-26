@@ -18,8 +18,8 @@ pub fn player_defaults() -> StatsBundleData {
             threat_generation: 1.0,
         },
         vital: VitalStats {
-            current_health: 100.0,
-            max_health: 100.0,
+            current_health: 1500.0,
+            max_health: 1500.0,
             current_mana: 100.0,
             max_mana: 100.0,
             mana_regeneration: 5.0,
@@ -115,6 +115,7 @@ mod tests {
         let stats = player_defaults();
         assert_eq!(stats.vital.current_health, stats.vital.max_health);
         assert_eq!(stats.vital.current_mana, stats.vital.max_mana);
+        assert_eq!(stats.vital.max_health, 1500.0);
         assert_eq!(stats.vital.max_mana, 100.0);
         assert_eq!(stats.vital.mana_regeneration, 5.0);
         assert_eq!(stats.gathering.speed, 0.0);
