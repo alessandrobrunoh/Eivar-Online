@@ -11,16 +11,11 @@ use crate::ui::theme::{
     spawn_ornate_menu_panel, UiTheme,
 };
 
-#[derive(Resource, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AuthPage {
+    #[default]
     Login,
     Register,
-}
-
-impl Default for AuthPage {
-    fn default() -> Self {
-        Self::Login
-    }
 }
 
 #[derive(Component)]

@@ -25,6 +25,7 @@ pub mod characters;
 pub mod docs;
 pub mod error;
 pub mod public;
+pub(crate) mod rate_limit;
 
 use std::time::{Duration, Instant};
 
@@ -59,7 +60,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(welcome))
         .route("/health", get(health))
-        .merge(auth::router())
+        .merge(auth::router(state.clone()))
         .merge(api_keys::router())
         .merge(characters::router())
         .merge(public::router())

@@ -29,7 +29,7 @@ pub fn respawn(ctx: &ReducerContext) -> Result<(), String> {
         .db
         .entity_stats()
         .entity_id()
-        .find(&entity.entity_id)
+        .find(entity.entity_id)
         .ok_or_else(|| "character has no stats".to_string())?;
 
     // Both conditions, as in the Bevy server: zero health counts as dead even

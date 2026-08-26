@@ -2,6 +2,7 @@
 
 use bevymmo_props_macro::item;
 
+use crate::ability_definitions::aegis::Aegis;
 use crate::items::ItemRegistry;
 
 #[item(
@@ -17,6 +18,11 @@ use crate::items::ItemRegistry;
         stat_bonus(field = MaxHealth, op = Add, value = 50.0),
     ],
     rune_profile(capacity = 7, stability = 0.90),
+    abilities(
+        primary = [Aegis],
+        secondary = [Aegis],
+        ultimate = [Aegis],
+    ),
 )]
 pub struct WardingHelm;
 
@@ -47,8 +53,11 @@ mod tests {
     }
 
     #[test]
-    fn has_no_ability_loadout() {
-        assert!(WardingHelm.ability_loadout().is_none());
+    fn exposes_the_aegis_ability() {
+        let loadout = WardingHelm
+            .ability_loadout()
+            .expect("warding helm must expose Aegis");
+        assert_eq!(loadout.primary[0].as_str(), "aegis");
     }
 
     #[test]

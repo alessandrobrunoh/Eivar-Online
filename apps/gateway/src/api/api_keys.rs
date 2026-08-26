@@ -144,6 +144,12 @@ pub async fn revoke(
     }
 }
 
+/// Mints a fresh API key secret: `eiv_` plus 64 lowercase hex characters.
+///
+/// The 32 bytes come from two v4 UUIDs, so 12 of the 256 bits are the UUID
+/// version and variant markers rather than entropy — 244 random bits, not 256.
+/// Far beyond what an unguessable token needs; noted because the shape reads
+/// like 32 random bytes and is not quite.
 pub(crate) fn mint_secret() -> String {
     let bytes = {
         let a = Uuid::new_v4();

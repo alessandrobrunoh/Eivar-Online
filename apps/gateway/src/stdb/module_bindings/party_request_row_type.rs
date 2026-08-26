@@ -51,6 +51,7 @@ impl __sdk::__query_builder::HasCols for PartyRequestRow {
 ///
 /// Provides typed access to indexed columns for query building.
 pub struct PartyRequestRowIxCols {
+    pub initiator: __sdk::__query_builder::IxCol<PartyRequestRow, __sdk::Uuid>,
     pub recipient: __sdk::__query_builder::IxCol<PartyRequestRow, __sdk::Uuid>,
     pub request_id: __sdk::__query_builder::IxCol<PartyRequestRow, u64>,
 }
@@ -59,6 +60,7 @@ impl __sdk::__query_builder::HasIxCols for PartyRequestRow {
     type IxCols = PartyRequestRowIxCols;
     fn ix_cols(table_name: &'static str) -> Self::IxCols {
         PartyRequestRowIxCols {
+            initiator: __sdk::__query_builder::IxCol::new(table_name, "initiator"),
             recipient: __sdk::__query_builder::IxCol::new(table_name, "recipient"),
             request_id: __sdk::__query_builder::IxCol::new(table_name, "request_id"),
         }

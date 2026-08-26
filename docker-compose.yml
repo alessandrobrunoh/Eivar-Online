@@ -1,3 +1,16 @@
+# Local development uses one service:
+#
+#   docker compose up -d spacetimedb
+#
+# The full stack (`docker compose up -d`) is the deployment, and needs
+# `SITE_DOMAIN` set in `.env` — see `Caddyfile` for why it must be a domain
+# name and not an IP.
+#
+# Note the port bindings below. Everything except Caddy publishes on
+# `127.0.0.1` only, so it is reachable for local development and `curl` on the
+# host, and not from the internet. Caddy is the sole ingress, which is what
+# makes `GATEWAY__TRUST_PROXY_HEADERS=true` safe.
+
 services:
   spacetimedb:
     image: clockworklabs/spacetime:latest
@@ -7,7 +20,10 @@ services:
     user: "0:0"
     command: ["start", "--listen-addr", "0.0.0.0:3000", "--data-dir", "/stdb"]
     ports:
-      - "3000:3000"
+      # Loopback only: `./scripts/stdb.sh publish` and a locally-run client both
+      # reach it, the internet does not. In deployment, clients come through
+      # `stdb.$SITE_DOMAIN` on Caddy.
+      - "127.0.0.1:3000:3000"
     volumes:
       - spacetime_data:/stdb
 
@@ -18,15 +34,21 @@ services:
       dockerfile: apps/gateway/Dockerfile
     restart: unless-stopped
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     environment:
       - APP_ENV=production
-      - GATEWAY__BIND_ADDR=0.0.0.0:8081
-      - GATEWAY__LOG_FORMAT=json
-      - GATEWAY__CORS_ORIGIN=http://193.70.42.29:5001
-      - GATEWAY__COOKIE_SECURE=false
-      - SPACETIME_URI=ws://spacetimedb:3000
-      - SPACETIME_MODULE=bevymmo-v2
+      - BEVYMMO__GATEWAY__BIND_ADDR=0.0.0.0:8081
+      - BEVYMMO__GATEWAY__LOG_FORMAT=json
+      - BEVYMMO__GATEWAY__CORS_ORIGIN=https://${SITE_DOMAIN}
+      # Served over HTTPS by Caddy, so the session cookie can finally be
+      # `Secure`. It was `false` while the deployment was plain HTTP, which
+      # meant the cookie travelled in clear text on every request.
+      - BEVYMMO__GATEWAY__COOKIE_SECURE=true
+      # Safe only because the gateway port is loopback-bound above and Caddy is
+      # the only way in. See `Caddyfile`.
+      - BEVYMMO__GATEWAY__TRUST_PROXY_HEADERS=true
+      - BEVYMMO__SPACETIME_URI=ws://spacetimedb:3000
+      - BEVYMMO__SPACETIME_MODULE=bevymmo-v2
     depends_on:
       - spacetimedb
 
@@ -37,9 +59,34 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "5001:80"
+      - "127.0.0.1:5001:80"
     depends_on:
       - gateway
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # HTTP/3.
+      - "443:443/udp"
+    environment:
+      # Fails the run with a readable message rather than starting a proxy that
+      # serves nothing and cannot get a certificate.
+      - SITE_DOMAIN=${SITE_DOMAIN:?set SITE_DOMAIN in .env — Caddy needs a domain name to get a certificate}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Losing this volume means
+      # re-issuing, which Let's Encrypt rate-limits — keep it.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - gateway
+      - frontend
+      - spacetimedb
+
 volumes:
   spacetime_data:
+  caddy_data:
+  caddy_config:

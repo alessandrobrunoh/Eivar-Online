@@ -585,6 +585,11 @@ pub fn spawn_matching_footprint(
 }
 
 /// Colour palette per weapon family (used as base; each ability tweaks it).
+///
+/// Only `SWORD` has a weapon behind it today. The other three are authored
+/// values kept next to it so the family that ships next inherits a considered
+/// colour rather than whatever the first VFX author picks.
+#[allow(dead_code)]
 mod palette {
     use bevy::color::Color;
 

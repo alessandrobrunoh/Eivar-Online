@@ -81,6 +81,8 @@ mod tests {
             directory: Arc::new(PlayerDirectory::new("http://127.0.0.1:9", "test")),
             cookie_secure: false,
             catalog: Arc::new(bevymmo_content::catalog::snapshot()),
+            auth_limiter: crate::api::rate_limit::RateLimiter::new(),
+            trust_proxy_headers: false,
         }
     }
 

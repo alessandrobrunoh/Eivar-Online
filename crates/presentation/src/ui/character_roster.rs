@@ -563,11 +563,12 @@ mod tests {
         assert_eq!(ROW_PAD, 16.0);
         assert!((50.0..=54.0).contains(&PORTRAIT_SIZE));
         assert_eq!(ROW_RADIUS, 8.0);
-        assert!(
-            ROW_HEIGHT >= PORTRAIT_SIZE + ROW_PAD * 2.0,
-            "16px padding plus a ~52px well must fit the row"
-        );
-        assert!(DELETE_BUTTON_SIZE <= ROW_HEIGHT - ROW_PAD * 2.0);
+        // Compile-time: these are relationships between constants, so a
+        // violation should fail the build rather than wait for a test run.
+        const {
+            assert!(ROW_HEIGHT >= PORTRAIT_SIZE + ROW_PAD * 2.0)
+        };
+        const { assert!(DELETE_BUTTON_SIZE <= ROW_HEIGHT - ROW_PAD * 2.0) };
     }
 
     #[test]

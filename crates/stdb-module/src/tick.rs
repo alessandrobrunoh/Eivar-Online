@@ -11,6 +11,7 @@ use spacetimedb::{reducer, ReducerContext, Table, Timestamp};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::sim;
+use crate::sim::throttle::Throttle;
 use crate::tables::{tick_stats, TickSchedule, TickStats};
 
 static ALLY_DUMMY_SEEDED: AtomicBool = AtomicBool::new(false);
@@ -24,8 +25,48 @@ static NPCS_SEEDED: AtomicBool = AtomicBool::new(false);
 /// its destination in a single frame.
 const MAX_STEP_SECONDS: f32 = 0.25;
 
+/// How often stale-presence expiry runs. See `sim::throttle`.
+static PRESENCE_SWEEP: Throttle = Throttle::from_millis(1_000);
+
+/// Forgets that the world has been seeded, so the next tick seeds it again.
+///
+/// Paired with `reducers::lifecycle::gm_reset_runtime_state`, which deletes the
+/// seeded entities these flags say already exist.
+pub(crate) fn reset_seed_flags() {
+    ALLY_DUMMY_SEEDED.store(false, Ordering::Relaxed);
+    RESOURCE_NODES_SEEDED.store(false, Ordering::Relaxed);
+    NPCS_SEEDED.store(false, Ordering::Relaxed);
+}
+
+/// Whether this invocation came from the scheduler rather than from a client.
+///
+/// A `scheduled(...)` table does not make its reducer private: `game_tick` stays
+/// part of the module's public API and any connected client can call it by name.
+/// The host invokes a scheduled reducer with the module's own identity as the
+/// sender, so that is what tells the two apart.
+///
+/// Without this, a client could drive the whole simulation step — status,
+/// crowd control, movement, gathering, crafting, spells, combat, loot, AI, over
+/// every entity, in one transaction — at whatever rate it liked. `advance_clock`
+/// bounds `dt`, so the *integrated* motion stays honest, but everything that is
+/// per-tick rather than per-`dt` (`crowd_control::step`, `loot::step`) would run
+/// as often as asked, and each call costs a full pass whatever `dt` says.
+fn invoked_by_scheduler(ctx: &ReducerContext) -> bool {
+    ctx.sender() == ctx.database_identity()
+}
+
 #[reducer]
 pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) {
+    // A rejected call cannot report anything: a scheduled reducer's signature
+    // has no `Result` to fail into. Log it and commit an empty transaction.
+    if !invoked_by_scheduler(ctx) {
+        log::warn!(
+            "game_tick called by {}; only the scheduler may run the tick",
+            ctx.sender().to_hex()
+        );
+        return;
+    }
+
     let dt = advance_clock(ctx, ctx.timestamp);
     if dt <= 0.0 {
         return;
@@ -51,12 +92,16 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) {
     sim::loot::step(ctx);
     sim::ai::step(ctx, dt);
 
-    crate::reducers::lifecycle::expire_stale_presence(ctx);
+    // A 15-second presence timeout does not need checking twenty times a
+    // second; each check walked every online player.
+    if PRESENCE_SWEEP.due(dt).is_some() {
+        crate::reducers::lifecycle::expire_stale_presence(ctx);
+    }
 }
 
 /// Advances the tick clock and returns the elapsed seconds since the last tick.
 fn advance_clock(ctx: &ReducerContext, now: Timestamp) -> f32 {
-    match ctx.db.tick_stats().id().find(&0) {
+    match ctx.db.tick_stats().id().find(0) {
         Some(stats) => {
             let dt = now
                 .duration_since(stats.last_tick)

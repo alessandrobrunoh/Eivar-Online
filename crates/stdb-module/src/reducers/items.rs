@@ -298,13 +298,13 @@ pub fn claim_npc_item(
         .db
         .game_entity()
         .entity_id()
-        .find(&character.entity_id)
+        .find(character.entity_id)
         .ok_or_else(|| "character has no entity".to_string())?;
     let npc = ctx
         .db
         .game_entity()
         .entity_id()
-        .find(&npc_entity_id)
+        .find(npc_entity_id)
         .ok_or_else(|| "NPC not found".to_string())?;
     if npc.kind != EntityKindRow::Npc {
         return Err("that entity is not an NPC vendor".to_string());
@@ -383,7 +383,7 @@ pub fn set_root_inscription(
         .db
         .known_ancient_language()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| {
             known_ancient_language_from_rows(
                 &row.root_words,
@@ -531,7 +531,7 @@ pub fn set_armor_inscription(
         .db
         .known_ancient_language()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .ok_or_else(|| "ancient language has not been initialized".to_string())?;
     let language = known_ancient_language_from_rows(
         &language_row.root_words,
@@ -681,7 +681,7 @@ pub fn recompute_effective_stats(ctx: &ReducerContext, character_id: Uuid) -> Re
         .db
         .player()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .ok_or_else(|| "no character with this id".to_string())?;
 
     // Delegates rather than deriving the stats here. `sim::combat` owns
@@ -698,9 +698,7 @@ pub fn recompute_effective_stats(ctx: &ReducerContext, character_id: Uuid) -> Re
 // ---------------------------------------------------------------------------
 
 fn is_greeter_stock(item_id: &str) -> bool {
-    bevymmo_domain::content::items::greeter_stock()
-        .iter()
-        .any(|id| *id == item_id)
+    bevymmo_domain::content::items::greeter_stock().contains(&item_id)
 }
 
 /// Puts a freshly minted esemplare of `item_id` into the first free inventory
@@ -925,7 +923,7 @@ pub(crate) fn load_inventory(
     ctx.db
         .inventory()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| inventory_from_rows(&row.slots))
         .ok_or_else(|| "no character for this identity; call `join` first".to_string())
 }
@@ -937,11 +935,14 @@ pub(crate) fn store_inventory(ctx: &ReducerContext, character_id: Uuid, inventor
     });
 }
 
-pub(crate) fn load_equipment(ctx: &ReducerContext, character_id: Uuid) -> Result<Equipment, String> {
+pub(crate) fn load_equipment(
+    ctx: &ReducerContext,
+    character_id: Uuid,
+) -> Result<Equipment, String> {
     ctx.db
         .equipment()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| equipment_from_rows(&row.slots))
         .ok_or_else(|| "no character for this identity; call `join` first".to_string())
 }

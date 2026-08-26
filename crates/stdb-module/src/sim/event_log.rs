@@ -23,7 +23,7 @@ pub fn set_logging(ctx: &ReducerContext, enabled: bool) -> Result<(), String> {
         .db
         .account()
         .id()
-        .find(&session.account_id)
+        .find(session.account_id)
         .ok_or_else(|| "account not found".to_string())?;
     if account.role != crate::tables::RoleRow::Admin {
         return Err("admin role required".to_string());
@@ -33,7 +33,7 @@ pub fn set_logging(ctx: &ReducerContext, enabled: bool) -> Result<(), String> {
         .db
         .domain_event_config()
         .id()
-        .find(&0)
+        .find(0)
         .unwrap_or(DomainEventConfig {
             id: 0,
             enabled: true,
@@ -51,7 +51,7 @@ pub fn logging_enabled(ctx: &ReducerContext) -> bool {
     ctx.db
         .domain_event_config()
         .id()
-        .find(&0)
+        .find(0)
         .map(|config| config.enabled)
         .unwrap_or(true)
 }
@@ -71,7 +71,7 @@ pub fn record_damage(
         .db
         .domain_event_config()
         .id()
-        .find(&0)
+        .find(0)
         .map(|config| config.damage_threshold)
         .unwrap_or(DEFAULT_DAMAGE_THRESHOLD);
     if !killed && amount < threshold {
@@ -129,13 +129,24 @@ pub fn record_cast(ctx: &ReducerContext, entity_id: u64, spell_id: String) {
 }
 
 /// Scheduled retention pass; never runs once per simulation frame.
+///
+/// Guarded like [`crate::tick::game_tick`]: `scheduled(...)` leaves the reducer
+/// callable by any client, and this one walks the whole `domain_event` table.
 #[reducer]
 pub fn prune(ctx: &ReducerContext, _schedule: crate::tables::DomainEventCleanupSchedule) {
+    if ctx.sender() != ctx.database_identity() {
+        log::warn!(
+            "prune called by {}; only the scheduler may run retention",
+            ctx.sender().to_hex()
+        );
+        return;
+    }
+
     let retention = ctx
         .db
         .domain_event_config()
         .id()
-        .find(&0)
+        .find(0)
         .map(|config| config.retention_seconds)
         .unwrap_or(DEFAULT_RETENTION_SECONDS);
     let expired: Vec<u64> = ctx
@@ -151,7 +162,7 @@ pub fn prune(ctx: &ReducerContext, _schedule: crate::tables::DomainEventCleanupS
         .map(|event| event.id)
         .collect();
     for id in expired {
-        ctx.db.domain_event().id().delete(&id);
+        ctx.db.domain_event().id().delete(id);
     }
 }
 

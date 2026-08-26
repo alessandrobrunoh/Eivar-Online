@@ -5,7 +5,7 @@ use std::time::Duration;
 use bevymmo_domain::items::components::{Equipment, Inventory};
 use bevymmo_domain::items::instance::{ItemInstance, ItemInstanceId};
 use bevymmo_domain::loot::{
-    collect_player_drops, loot_bag_expired, roll_loot, LOOT_BAG_LIFETIME_SECS, LootTable,
+    collect_player_drops, loot_bag_expired, roll_loot, LootTable, LOOT_BAG_LIFETIME_SECS,
 };
 use bevymmo_domain::placeables::KindId;
 use spacetimedb::rand::RngCore;
@@ -35,12 +35,7 @@ pub fn on_death(ctx: &ReducerContext, entity: &GameEntity) {
 pub fn step(ctx: &ReducerContext) {
     let now = ctx.timestamp;
     let now_micros = now.to_micros_since_unix_epoch();
-    let due: Vec<LootBag> = ctx
-        .db
-        .loot_bag()
-        .by_expiry()
-        .filter(..=now)
-        .collect();
+    let due: Vec<LootBag> = ctx.db.loot_bag().by_expiry().filter(..=now).collect();
     for bag in due {
         if loot_bag_expired(now_micros, bag.expires_at.to_micros_since_unix_epoch()) {
             delete_bag(ctx, bag.id);

@@ -57,10 +57,21 @@ pub fn weapon_slot_bindings() -> impl Iterator<Item = (KeyAction, AbilitySlot)> 
 /// stay ordered). This retry covers the case where that send raced ahead of
 /// `cast_weapon` and no-op'd, which would otherwise leave the charge bar up
 /// until the player held the key again.
+// UNFINISHED: the retry this type exists for is not wired up. `PendingCastRelease`
+// is only ever `clear()`ed — nothing constructs a `QueuedCastRelease`, nothing
+// reads one back, and `ObservedCasts` / `observed_cast_is` (the half that would
+// tell us the `cast_weapon` landed) are unused for the same reason. So the race
+// described above is still live: a `release_cast` that overtakes its
+// `cast_weapon` still leaves the charge bar up until the player presses again.
+//
+// Kept rather than deleted because the shape is right and the intent is worth
+// preserving; `allow(dead_code)` so the build stays clean without hiding that
+// this is unimplemented.
 #[derive(Resource, Default)]
-pub struct PendingCastRelease(Option<QueuedCastRelease>);
+pub struct PendingCastRelease(#[allow(dead_code)] Option<QueuedCastRelease>);
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct QueuedCastRelease {
     ability_id: AbilityId,
     action: KeyAction,
@@ -289,6 +300,9 @@ pub fn cast_abilities_on_key(
     }
 }
 
+/// Part of the unwired release retry — see `PendingCastRelease`. Paired with
+/// `send_release_cast` below, which already carried the same `allow`.
+#[allow(dead_code)]
 fn observed_cast_is(observed: &ObservedCasts, caster: u64, ability_id: &AbilityId) -> bool {
     observed
         .0

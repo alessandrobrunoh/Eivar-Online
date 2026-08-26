@@ -35,10 +35,10 @@ use super::module_bindings::register_reducer::register;
 use super::module_bindings::revoke_api_key_reducer::revoke_api_key;
 use super::module_bindings::stats_row_type::StatsRow;
 use super::module_bindings::{
-    CharacterWalletTableAccess, DbConnection, ErrorContext, Market, MarketBuyOrder,
+    DbConnection, EntityStatsTableAccess, ErrorContext, Market, MarketBuyOrder,
     MarketBuyOrderTableAccess, MarketSellOrder, MarketSellOrderTableAccess, MarketTableAccess,
-    MyApiKeysTableAccess, Player, PlayerStatsTableAccess, PlayerTableAccess, ReducerEventContext,
-    SessionTableAccess,
+    MyApiKeysTableAccess, MySessionTableAccess, MyWalletTableAccess, Player, PlayerTableAccess,
+    ReducerEventContext,
 };
 
 /// One of the caller's own characters, for the `/profile` endpoint.
@@ -73,10 +73,34 @@ fn outcome_sender(
     }
 }
 
+/// Closes the socket when the last [`GatewayConnection`] handle goes away.
+///
+/// Deliberately *not* held by the background task, only by the handles: the
+/// task owns an `Arc<DbConnection>` of its own, so before this existed nothing
+/// closed a connection whose handles had all been dropped without an explicit
+/// `disconnect()`. The 15s request timeout in `api::mod` does exactly that —
+/// it drops the handler future mid-`await` — so every timed-out login leaked
+/// one live WebSocket to SpacetimeDB for the lifetime of the process.
+struct DisconnectGuard {
+    conn: Arc<DbConnection>,
+}
+
+impl Drop for DisconnectGuard {
+    fn drop(&mut self) {
+        // Already-disconnected is the normal case on an explicit `disconnect()`
+        // followed by the handle dropping; it is not worth a warning.
+        if let Err(err) = self.conn.disconnect() {
+            tracing::debug!("gateway connection already closed on drop: {err}");
+        }
+    }
+}
+
 /// A live SpacetimeDB connection plus the background task advancing it.
 /// Cloning shares the same underlying connection — cheap, and what the
 /// session store wants: every request for the same browser session reuses
 /// one connection rather than opening a new one.
+///
+/// The socket closes when the last clone drops. See [`DisconnectGuard`].
 #[derive(Clone)]
 pub struct GatewayConnection {
     conn: Arc<DbConnection>,
@@ -84,6 +108,8 @@ pub struct GatewayConnection {
     /// gone. Read by [`Self::is_closed`] so long-lived holders (the public
     /// directory) can tell a live cache from a dead one and reconnect.
     closed: Arc<AtomicBool>,
+    /// Last one out closes the socket. Never cloned into the background task.
+    _guard: Arc<DisconnectGuard>,
 }
 
 impl GatewayConnection {
@@ -116,7 +142,15 @@ impl GatewayConnection {
             closed_flag.store(true, Ordering::Release);
         });
 
-        let this = Self { conn, closed };
+        let this = Self {
+            _guard: Arc::new(DisconnectGuard {
+                conn: Arc::clone(&conn),
+            }),
+            conn,
+            closed,
+        };
+        // If the subscription handshake fails, `this` drops here and the guard
+        // closes the socket — the same path that used to leak.
         this.subscribe().await?;
         Ok(this)
     }
@@ -124,11 +158,16 @@ impl GatewayConnection {
     /// Subscribes to the public tables this gateway reads, then awaits the
     /// initial snapshot so callers do not race an empty local cache.
     ///
-    /// `player` / `session` back the character roster and this connection's
-    /// `account_id`. `market` / `market_sell_order` / `market_buy_order` /
-    /// `character_wallet` back the public market APIs and the wallet lookup.
-    /// `my_api_keys` is the per-caller view of API-key metadata (no hashes).
-    /// `player_stats` backs `/v1/characters/:id/stats`.
+    /// `player` is public — it is the character roster every client can see.
+    /// The rest are `my_*` views, computed per caller from `ctx.sender()`, so
+    /// this connection sees only the account it authenticated as: `my_session`
+    /// for `account_id`, `my_wallet` for the wallet lookup, `my_api_keys` for
+    /// API-key metadata (never hashes). `market` and the two order books are
+    /// public because the books are.
+    ///
+    /// `player_stats` used to be here and is gone: nothing read it. The stats
+    /// endpoint resolves through `entity_stats`, which is live combat state for
+    /// every entity and stays public.
     async fn subscribe(&self) -> Result<(), String> {
         let (tx, rx) = oneshot::channel();
         let tx = Arc::new(Mutex::new(Some(tx)));
@@ -149,13 +188,12 @@ impl GatewayConnection {
             })
             .subscribe([
                 "SELECT * FROM player",
-                "SELECT * FROM session",
+                "SELECT * FROM my_session",
                 "SELECT * FROM market",
                 "SELECT * FROM market_sell_order",
                 "SELECT * FROM market_buy_order",
-                "SELECT * FROM character_wallet",
+                "SELECT * FROM my_wallet",
                 "SELECT * FROM my_api_keys",
-                "SELECT * FROM player_stats",
             ]);
 
         rx.await
@@ -182,12 +220,16 @@ impl GatewayConnection {
     /// table rather than tracked locally, so it is always consistent with
     /// what the server actually recorded.
     pub fn account_id(&self) -> Option<u64> {
-        let identity = self.identity()?;
+        // `my_session` is computed from `ctx.sender()` and holds at most this
+        // connection's own row, so the scan over every session in the database
+        // that used to be here is now a single-element read. The `session`
+        // table itself is no longer public — see `bevymmo_module::views`.
+        let _ = self.identity()?;
         self.conn
             .db()
-            .session()
+            .my_session()
             .iter()
-            .find(|row| row.identity == identity)
+            .next()
             .map(|row| row.account_id)
     }
 
@@ -249,7 +291,7 @@ impl GatewayConnection {
         let character_id = spacetimedb_sdk::Uuid::from_u128(character_id.as_u128());
         self.conn
             .db()
-            .character_wallet()
+            .my_wallet()
             .iter()
             .find(|row| row.character_id == character_id)
             .map(|row| row.gold)
@@ -287,13 +329,17 @@ impl GatewayConnection {
         self.conn.db().my_api_keys().iter().find(|row| row.id == id)
     }
 
+    /// Effective stats for one character, including current health and shield.
+    ///
+    /// `player_stats` stores base values, while `entity_stats` is the
+    /// authoritative runtime row used by combat and replication.
     pub fn player_stats(&self, character_id: uuid::Uuid) -> Option<StatsRow> {
-        let character_id = spacetimedb_sdk::Uuid::from_u128(character_id.as_u128());
+        let player = self.player(character_id)?;
         self.conn
             .db()
-            .player_stats()
-            .iter()
-            .find(|row| row.character_id == character_id)
+            .entity_stats()
+            .entity_id()
+            .find(&player.entity_id)
             .map(|row| row.stats)
     }
 

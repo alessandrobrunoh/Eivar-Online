@@ -31,3 +31,9 @@ Thumbs.db
 # Design sheets belong in apps/frontend/design-assets/sheets/ or assets/ui/source/.
 /ChatGPT Image *.png
 
+
+# Local agent/tooling scratch directories. Untracked, but noisy in
+# `git status` and in anything that walks the tree — `.delta` alone reached
+# 4.3 GB of checked-out worktrees.
+/.delta/
+/.tools/

@@ -12,6 +12,7 @@
 //! | `SessionExpired` | 401 | cookie present, but its server-side connection was reaped |
 //! | `Forbidden` | 403 | authenticated, but the resource belongs to another account |
 //! | `NotFound` | 404 | no such character, or no such route (the fallback) |
+//! | `TooManyRequests` | 429 | the caller tripped the auth rate limit |
 //! | `BadGateway` | 502 | SpacetimeDB unreachable while opening an auth connection |
 //! | `ServiceUnavailable` | 503 | the shared directory connection is down; retry later |
 //! | `Timeout` | 504 | the request exceeded [`crate::api::REQUEST_TIMEOUT`] |
@@ -38,6 +39,8 @@ pub(crate) enum AppError {
     Forbidden(String),
     #[error("{0}")]
     NotFound(String),
+    #[error("too many attempts, try again in a moment")]
+    TooManyRequests,
     #[error("could not reach the game server")]
     BadGateway,
     #[error("could not reach the game server, try again later")]
@@ -55,6 +58,7 @@ impl AppError {
             Self::Unauthorized | Self::SessionExpired => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
             Self::BadGateway => StatusCode::BAD_GATEWAY,
             Self::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             Self::Timeout => StatusCode::GATEWAY_TIMEOUT,

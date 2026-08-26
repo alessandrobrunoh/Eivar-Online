@@ -25,6 +25,7 @@ use tokio::signal;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::info;
 
+use api::rate_limit::RateLimiter;
 use bevymmo_app_support::settings::Settings;
 use stdb::directory::PlayerDirectory;
 use stdb::session::SessionStore;
@@ -49,6 +50,12 @@ struct AppState {
     cookie_secure: bool,
     /// Compiled game catalog (`bevymmo_content`), served on `/v1/public/catalog/*`.
     catalog: Arc<bevymmo_content::catalog::Catalog>,
+    /// Throttles `/v1/auth/*`. See `api::rate_limit`.
+    auth_limiter: RateLimiter,
+    /// Whether `X-Forwarded-For` may name the client. Only true when a reverse
+    /// proxy we control is the sole thing that can reach this port — otherwise
+    /// callers would pick their own rate-limit bucket.
+    trust_proxy_headers: bool,
 }
 
 #[tokio::main]
@@ -65,6 +72,11 @@ async fn main() {
     let sessions = SessionStore::new();
     sessions.spawn_reaper();
 
+    let auth_limiter = RateLimiter::new();
+    auth_limiter.spawn_reaper();
+
+    let cors_origin_log = settings.gateway.cors_origin.clone();
+    let settings_trust_proxy = settings.gateway.trust_proxy_headers;
     let cors_origin: HeaderValue = settings
         .gateway
         .cors_origin
@@ -82,6 +94,8 @@ async fn main() {
         directory,
         cookie_secure: settings.gateway.cookie_secure,
         catalog: Arc::new(bevymmo_content::catalog::snapshot()),
+        auth_limiter,
+        trust_proxy_headers: settings.gateway.trust_proxy_headers,
     };
     let app = api::router(state).layer(cors_layer(cors_origin));
 
@@ -89,12 +103,25 @@ async fn main() {
         .await
         .unwrap_or_else(|err| panic!("failed to bind gateway on {bind_addr}: {err}"));
 
-    info!(%bind_addr, "BevyMMO gateway listening");
+    // Logged because a rejected browser request shows up as an opaque CORS
+    // failure in the console with nothing on the server side to match it to.
+    info!(
+        %bind_addr,
+        cors_origin = %cors_origin_log,
+        loopback_origins_allowed = cfg!(debug_assertions),
+        trust_proxy_headers = settings_trust_proxy,
+        "BevyMMO gateway listening"
+    );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("gateway server crashed");
+    // `into_make_service_with_connect_info` is what puts the peer address in
+    // the request extensions; `api::rate_limit` fails closed without it.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .expect("gateway server crashed");
 }
 
 // `Any` origin is not an option: the session cookie needs
@@ -103,10 +130,9 @@ async fn main() {
 // `GatewaySettings::cors_origin`'s doc comment.
 fn cors_layer(cors_origin: HeaderValue) -> CorsLayer {
     CorsLayer::new()
-        // Angular may move to a free port when 4200 is already occupied.
-        // Keep production restricted to the configured origin, but allow
-        // local Angular dev-server ports without falling back to `*` (which
-        // cannot be used with credentialed session cookies).
+        // Angular may move to a free port when 4200 is already occupied, so a
+        // debug build also accepts any loopback port. A release build accepts
+        // the configured origin and nothing else — see `is_local_dev_origin`.
         .allow_origin(AllowOrigin::predicate(move |origin, _| {
             origin == cors_origin || is_local_dev_origin(origin)
         }))
@@ -115,7 +141,21 @@ fn cors_layer(cors_origin: HeaderValue) -> CorsLayer {
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
 }
 
+/// Whether `origin` is a loopback dev server, and whether that is allowed to
+/// matter at all.
+///
+/// The loopback clause is gated on `debug_assertions` rather than being live
+/// everywhere. Paired with `allow_credentials(true)`, an ungated version means
+/// *any* page served from any port on a visitor's own machine — another dev
+/// server, a desktop app with a local web UI, a tool with a `127.0.0.1` panel —
+/// can make credentialed requests to the production gateway and read the
+/// replies. `apps/gateway/Dockerfile` builds with `--release`, so the deployed
+/// binary drops the clause; `cargo run` keeps it.
 fn is_local_dev_origin(origin: &HeaderValue) -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+
     let Ok(origin) = origin.to_str() else {
         return false;
     };

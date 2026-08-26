@@ -17,3 +17,4 @@ pub mod movement;
 pub mod spells;
 pub mod status;
 pub mod targets;
+pub mod throttle;

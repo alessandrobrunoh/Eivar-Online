@@ -53,15 +53,15 @@ use super::module_bindings::send_chat_message_reducer::send_chat_message as send
 use super::module_bindings::set_ability_selection_reducer::set_ability_selection as set_ability_selection_reducer;
 use super::module_bindings::set_armor_inscription_reducer::set_armor_inscription as set_armor_inscription_reducer;
 
+use super::module_bindings::loot_take_all_reducer::loot_take_all as loot_take_all_reducer;
+use super::module_bindings::loot_take_gold_reducer::loot_take_gold as loot_take_gold_reducer;
+use super::module_bindings::loot_take_reducer::loot_take as loot_take_reducer;
 use super::module_bindings::set_root_inscription_reducer::set_root_inscription as set_root_inscription_reducer;
 use super::module_bindings::split_item_reducer::split_item as split_item_reducer;
 use super::module_bindings::start_craft_reducer::start_craft as start_craft_reducer;
 use super::module_bindings::start_gather_reducer::start_gather as start_gather_reducer;
 use super::module_bindings::stop_craft_reducer::stop_craft as stop_craft_reducer;
 use super::module_bindings::stop_gather_reducer::stop_gather as stop_gather_reducer;
-use super::module_bindings::loot_take_all_reducer::loot_take_all as loot_take_all_reducer;
-use super::module_bindings::loot_take_gold_reducer::loot_take_gold as loot_take_gold_reducer;
-use super::module_bindings::loot_take_reducer::loot_take as loot_take_reducer;
 use super::module_bindings::unequip_item_reducer::unequip_item as unequip_item_reducer;
 use super::module_bindings::Vec3Row;
 use super::plugin::StdbConnection;

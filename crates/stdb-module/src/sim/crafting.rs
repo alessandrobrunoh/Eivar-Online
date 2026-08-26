@@ -46,14 +46,8 @@ pub(crate) fn npc_craft_categories(
 }
 
 pub fn cancel_session(ctx: &ReducerContext, entity_id: u64) {
-    if ctx
-        .db
-        .craft_session()
-        .entity_id()
-        .find(&entity_id)
-        .is_some()
-    {
-        ctx.db.craft_session().entity_id().delete(&entity_id);
+    if ctx.db.craft_session().entity_id().find(entity_id).is_some() {
+        ctx.db.craft_session().entity_id().delete(entity_id);
     }
 }
 
@@ -66,7 +60,7 @@ pub fn step(ctx: &ReducerContext, dt: f32) {
 }
 
 fn advance_session(ctx: &ReducerContext, mut session: CraftSession, dt: f32) {
-    let Some(crafter) = ctx.db.game_entity().entity_id().find(&session.entity_id) else {
+    let Some(crafter) = ctx.db.game_entity().entity_id().find(session.entity_id) else {
         cancel_session(ctx, session.entity_id);
         return;
     };
@@ -76,7 +70,7 @@ fn advance_session(ctx: &ReducerContext, mut session: CraftSession, dt: f32) {
             .db
             .cast_state()
             .entity_id()
-            .find(&crafter.entity_id)
+            .find(crafter.entity_id)
             .is_some()
     {
         interrupt(ctx, &session, crafter.owner_character_id);
@@ -92,12 +86,7 @@ fn advance_session(ctx: &ReducerContext, mut session: CraftSession, dt: f32) {
         return;
     }
 
-    let Some(npc_entity) = ctx
-        .db
-        .game_entity()
-        .entity_id()
-        .find(&session.npc_entity_id)
-    else {
+    let Some(npc_entity) = ctx.db.game_entity().entity_id().find(session.npc_entity_id) else {
         interrupt(ctx, &session, crafter.owner_character_id);
         return;
     };
@@ -141,7 +130,7 @@ fn complete_channel(
         cancel_session(ctx, session.entity_id);
         return;
     };
-    let Some(npc_row) = ctx.db.npc().entity_id().find(&session.npc_entity_id) else {
+    let Some(npc_row) = ctx.db.npc().entity_id().find(session.npc_entity_id) else {
         interrupt(ctx, &session, Some(character_id));
         return;
     };

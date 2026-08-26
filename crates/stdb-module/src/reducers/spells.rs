@@ -25,8 +25,8 @@ use bevymmo_domain::abilities::{
     resolve_root_inscribed_slot, AbilityCastMode, AbilitySlot, CastBlockedReason,
     ChannelMovementPolicy as AbilityChannelMovementPolicy,
 };
-use bevymmo_domain::movement::{should_face_cast_target, MovementLock};
 use bevymmo_domain::items::components::EquipSlot;
+use bevymmo_domain::movement::{should_face_cast_target, MovementLock};
 use bevymmo_domain::spells::context::SpellCastContext;
 use bevymmo_domain::EntityId;
 use glam::Vec3;
@@ -39,6 +39,27 @@ use crate::tables::{
     cast_state, equipment, game_entity, known_ancient_language, CastKindRow, CastSourceRow,
     CastState, EntityStateRow, GameEntity,
 };
+
+/// Rejects a cursor position that is not a real point in space.
+///
+/// `move_to` already does this for its own coordinates; these reducers did not,
+/// and they are the other door a client-chosen position comes through. A `NaN`
+/// survives every comparison downstream: `grid_cell` folds it to cell `(0, 0)`
+/// and `flat_distance(..) > radius` is false for `NaN`, so an area effect aimed
+/// at nowhere hits everything standing in that one cell regardless of range. An
+/// infinity is worse-behaved still, and either one lands in `projectile` or
+/// `aoe_region` — public tables — to be replicated to every client until it
+/// expires.
+///
+/// `None` stays `None`: not aiming at the ground is normal, aiming at `NaN` is not.
+fn finite_target(position: Option<Vec3Row>) -> Result<Option<Vec3Row>, String> {
+    match position {
+        Some(point) if !(point.x.is_finite() && point.y.is_finite() && point.z.is_finite()) => {
+            Err("target position must have finite coordinates".to_string())
+        }
+        other => Ok(other),
+    }
+}
 
 /// Ends the caller's cast of `spell_id`, as on key release.
 ///
@@ -56,9 +77,13 @@ pub fn release_cast(
     target_entity: Option<u64>,
     target_position: Option<Vec3Row>,
 ) -> Result<(), String> {
+    // Validated even though both are discarded here: rejecting the same input
+    // at every door is what stops the next reducer that starts reading them
+    // from inheriting the hole.
+    let target_position = finite_target(target_position)?;
     let _ = (target_entity, target_position);
     let caster = caller_entity(ctx)?;
-    let Some(cast) = ctx.db.cast_state().entity_id().find(&caster.entity_id) else {
+    let Some(cast) = ctx.db.cast_state().entity_id().find(caster.entity_id) else {
         return Ok(());
     };
     if cast.spell_id != spell_id {
@@ -94,6 +119,7 @@ pub fn cast_weapon(
     target_entity: Option<u64>,
     target_position: Option<Vec3Row>,
 ) -> Result<(), String> {
+    let target_position = finite_target(target_position)?;
     let character_id = caller_character(ctx)?.character_id;
     let caster = caller_entity(ctx)?;
     if caster.state == EntityStateRow::Dead {
@@ -105,7 +131,7 @@ pub fn cast_weapon(
         .db
         .equipment()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| equipment_from_rows(&row.slots))
         .unwrap_or_default();
     let weapon = equipment
@@ -137,7 +163,7 @@ pub fn cast_weapon(
         .db
         .known_ancient_language()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| {
             known_ancient_language_from_rows(
                 &row.root_words,
@@ -211,7 +237,7 @@ pub fn cast_weapon(
                 .db
                 .known_ancient_language()
                 .character_id()
-                .find(&character_id)
+                .find(character_id)
                 .map(|row| {
                     known_ancient_language_from_rows(
                         &row.root_words,
@@ -324,6 +350,7 @@ pub fn armor_cast(
     target_entity: Option<u64>,
     target_position: Option<Vec3Row>,
 ) -> Result<(), String> {
+    let target_position = finite_target(target_position)?;
     let character_id = caller_character(ctx)?.character_id;
     let caster = caller_entity(ctx)?;
     if caster.state == EntityStateRow::Dead {
@@ -339,7 +366,7 @@ pub fn armor_cast(
         .db
         .equipment()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .map(|row| equipment_from_rows(&row.slots))
         .unwrap_or_default();
     let armor = equipment
@@ -369,7 +396,7 @@ pub fn armor_cast(
         .db
         .known_ancient_language()
         .character_id()
-        .find(&character_id)
+        .find(character_id)
         .ok_or_else(|| "ancient language has not been initialized".to_string())?;
     let language = known_ancient_language_from_rows(
         &language_row.root_words,
@@ -394,6 +421,11 @@ pub fn armor_cast(
         target_entity,
         target_position.map(Vec3::from),
     )?;
+    if ability_id.as_str() == "aegis"
+        && target_entity.is_some_and(|target| target != caster.entity_id)
+    {
+        return Err("Aegis can only target its caster".to_string());
+    }
     spells::spend_mana(ctx, caster.entity_id, preview.params.mana_cost)?;
     let cast_mode = preview.ability.cast_mode();
     let source = match target_slot {
@@ -489,6 +521,17 @@ fn cast_armor_instant(
     language: &bevymmo_domain::abilities::KnownAncientLanguage,
     item: &dyn bevymmo_domain::items::definition::Item,
 ) -> Result<(), String> {
+    if ability_id.as_str() == "aegis" {
+        crate::sim::combat::apply_shield(ctx, caster.entity_id, 1000.0, 5.0);
+        spells::start_cooldown(
+            ctx,
+            caster.entity_id,
+            ability_id.as_str(),
+            preview.ability.base_params().cooldown,
+        );
+        return Ok(());
+    }
+
     let combat = spells::combat_stats(ctx, caster.entity_id)
         .ok_or_else(|| "caster has no stats".to_string())?;
     let caster_position = Vec3::from(caster.position);
@@ -569,7 +612,7 @@ fn face_target(
 /// Cancels whatever the caster was casting, so starting a spell always replaces
 /// the previous one rather than racing it.
 fn cancel_active_cast(ctx: &ReducerContext, entity_id: u64) {
-    if let Some(active) = ctx.db.cast_state().entity_id().find(&entity_id) {
+    if let Some(active) = ctx.db.cast_state().entity_id().find(entity_id) {
         spells::end_cast(ctx, entity_id, active.spell_id, true);
     }
     crate::sim::gathering::cancel_session(ctx, entity_id);
@@ -600,5 +643,48 @@ fn describe_block(reason: CastBlockedReason) -> String {
         CastBlockedReason::IncompatibleAncientWord => {
             "an Ancient Word is incompatible with the selected gesture".to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(x: f32, y: f32, z: f32) -> Option<Vec3Row> {
+        Some(Vec3Row { x, y, z })
+    }
+
+    #[test]
+    fn finite_target_passes_a_real_point_through_unchanged() {
+        let input = point(1.5, -2.0, 30.25);
+        assert_eq!(finite_target(input).unwrap(), input);
+    }
+
+    #[test]
+    fn finite_target_keeps_an_absent_target_absent() {
+        // Not aiming at the ground is normal — a self-cast or a unit-targeted
+        // ability sends `None`, and that must not become an error.
+        assert_eq!(finite_target(None).unwrap(), None);
+    }
+
+    #[test]
+    fn finite_target_rejects_nan_on_any_axis() {
+        assert!(finite_target(point(f32::NAN, 0.0, 0.0)).is_err());
+        assert!(finite_target(point(0.0, f32::NAN, 0.0)).is_err());
+        assert!(finite_target(point(0.0, 0.0, f32::NAN)).is_err());
+    }
+
+    #[test]
+    fn finite_target_rejects_both_infinities() {
+        assert!(finite_target(point(f32::INFINITY, 0.0, 0.0)).is_err());
+        assert!(finite_target(point(0.0, 0.0, f32::NEG_INFINITY)).is_err());
+    }
+
+    #[test]
+    fn finite_target_accepts_the_extremes_that_are_still_numbers() {
+        // The guard is about finiteness, not about map bounds: a position far
+        // outside the world is rejected later, by the ability's own range check.
+        assert!(finite_target(point(f32::MAX, 0.0, f32::MIN)).is_ok());
+        assert!(finite_target(point(0.0, 0.0, 0.0)).is_ok());
     }
 }

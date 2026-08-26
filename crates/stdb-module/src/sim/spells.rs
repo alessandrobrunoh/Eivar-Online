@@ -64,7 +64,7 @@ use crate::tables::{
 
 /// Resolves an item's ability pools, falling back to its weapon family when
 /// the concrete item intentionally only defines variant-specific behavior.
-pub fn ability_loadout_for_item<'a>(item: &'a dyn Item) -> Option<&'a AbilityLoadout> {
+pub fn ability_loadout_for_item(item: &dyn Item) -> Option<&AbilityLoadout> {
     if let Some(loadout) = item.ability_loadout() {
         return Some(loadout);
     }
@@ -133,7 +133,7 @@ pub fn items() -> &'static ItemRegistry {
 
 /// The caster's combat stats, or `None` if it has no stats row.
 pub fn combat_stats(ctx: &ReducerContext, entity_id: u64) -> Option<CombatStats> {
-    let row = ctx.db.entity_stats().entity_id().find(&entity_id)?;
+    let row = ctx.db.entity_stats().entity_id().find(entity_id)?;
     Some(StatsBundleData::from(row.stats).combat)
 }
 
@@ -146,7 +146,7 @@ fn is_alive(ctx: &ReducerContext, entity: &GameEntity) -> bool {
     ctx.db
         .entity_stats()
         .entity_id()
-        .find(&entity.entity_id)
+        .find(entity.entity_id)
         .is_none_or(|stats| stats.stats.current_health > 0.0)
 }
 
@@ -233,7 +233,7 @@ pub fn validate_cast_target(
     let Some(id) = target_entity else {
         return Ok(());
     };
-    let Some(target) = ctx.db.game_entity().entity_id().find(&id) else {
+    let Some(target) = ctx.db.game_entity().entity_id().find(id) else {
         return Err("that target is gone".to_string());
     };
     let online_flag = target.owner_character_id.map(|cid| online.contains(&cid));
@@ -254,7 +254,7 @@ pub fn spend_mana(ctx: &ReducerContext, entity_id: u64, cost: f32) -> Result<(),
     if cost <= 0.0 {
         return Ok(());
     }
-    let Some(row) = ctx.db.entity_stats().entity_id().find(&entity_id) else {
+    let Some(row) = ctx.db.entity_stats().entity_id().find(entity_id) else {
         return Err("caster has no stats".to_string());
     };
     let current_mana = bevymmo_domain::stats::formulas::spend_mana(row.current_mana, cost)
@@ -304,7 +304,7 @@ pub fn start_cooldown(ctx: &ReducerContext, entity_id: u64, ability_id: &str, du
         .map(|row| row.id)
         .collect();
     for id in existing {
-        ctx.db.cooldown().id().delete(&id);
+        ctx.db.cooldown().id().delete(id);
     }
     ctx.db.cooldown().insert(Cooldown {
         id: 0,
@@ -317,7 +317,7 @@ pub fn start_cooldown(ctx: &ReducerContext, entity_id: u64, ability_id: &str, du
 
 /// Ends whatever `entity_id` is casting, telling subscribers how it ended.
 pub fn end_cast(ctx: &ReducerContext, entity_id: u64, spell_id: String, interrupted: bool) {
-    ctx.db.cast_state().entity_id().delete(&entity_id);
+    ctx.db.cast_state().entity_id().delete(entity_id);
     if !interrupted {
         crate::sim::event_log::record_cast(ctx, entity_id, spell_id.clone());
     }
@@ -362,7 +362,7 @@ pub fn fire_weapon_ability(
 
     // Re-resolve the source item. A cast can finish several ticks after it
     // started, so equipment and inscriptions must still be valid at fire time.
-    let equip_row = ctx.db.equipment().character_id().find(&character_id)?;
+    let equip_row = ctx.db.equipment().character_id().find(character_id)?;
     let equipment = equipment_from_rows(&equip_row.slots);
     let ability_id = bevymmo_domain::abilities::AbilityId::new(ability_id_str.to_string());
 
@@ -379,13 +379,13 @@ pub fn fire_weapon_ability(
             .into_iter()
             .find(|&s| {
                 resolve_active_ability(s, weapon_abilities, &weapon.ability_selection)
-                    .map_or(false, |id| id.as_str() == ability_id.as_str())
+                    .is_some_and(|id| id.as_str() == ability_id.as_str())
             })?;
             let language_row = ctx
                 .db
                 .known_ancient_language()
                 .character_id()
-                .find(&character_id)?;
+                .find(character_id)?;
             let language = known_ancient_language_from_rows(
                 &language_row.root_words,
                 &language_row.ancient_words,
@@ -424,7 +424,7 @@ pub fn fire_weapon_ability(
                 .db
                 .known_ancient_language()
                 .character_id()
-                .find(&character_id)?;
+                .find(character_id)?;
             let language = known_ancient_language_from_rows(
                 &language_row.root_words,
                 &language_row.ancient_words,
@@ -463,7 +463,7 @@ pub fn fire_weapon_ability(
 
     match source {
         CastSourceRow::Weapon => {
-            let equip_row = ctx.db.equipment().character_id().find(&character_id)?;
+            let equip_row = ctx.db.equipment().character_id().find(character_id)?;
             let equipment = equipment_from_rows(&equip_row.slots);
             let weapon = equipment.weapon.as_ref()?;
             let weapon_abilities = ability_loadout_for_item(item.as_ref())?;
@@ -475,13 +475,13 @@ pub fn fire_weapon_ability(
             .into_iter()
             .find(|&s| {
                 resolve_active_ability(s, weapon_abilities, &weapon.ability_selection)
-                    .map_or(false, |id| id.as_str() == ability_id.as_str())
+                    .is_some_and(|id| id.as_str() == ability_id.as_str())
             })?;
             let language_row = ctx
                 .db
                 .known_ancient_language()
                 .character_id()
-                .find(&character_id)?;
+                .find(character_id)?;
             let language = known_ancient_language_from_rows(
                 &language_row.root_words,
                 &language_row.ancient_words,
@@ -508,7 +508,7 @@ pub fn fire_weapon_ability(
                 .db
                 .known_ancient_language()
                 .character_id()
-                .find(&character_id)?;
+                .find(character_id)?;
             let language = known_ancient_language_from_rows(
                 &language_row.root_words,
                 &language_row.ancient_words,
@@ -546,7 +546,7 @@ fn catalog_inscription(
     entity_id: u64,
     ability_id: &str,
 ) -> Option<KitInscription> {
-    if let Some(row) = ctx.db.enemy_ai().entity_id().find(&entity_id) {
+    if let Some(row) = ctx.db.enemy_ai().entity_id().find(entity_id) {
         if let Some(config) = crate::world::enemy_config_for(&row.kind_id) {
             if let Some(entry) = config
                 .abilities
@@ -557,7 +557,7 @@ fn catalog_inscription(
             }
         }
     }
-    if ctx.db.boss_state().entity_id().find(&entity_id).is_some() {
+    if ctx.db.boss_state().entity_id().find(entity_id).is_some() {
         if let Some(config) = crate::world::boss_config_for("boss_dragon") {
             if let Some(entry) = config
                 .abilities
@@ -748,7 +748,7 @@ pub fn stop_movement(ctx: &ReducerContext, caster: GameEntity) -> GameEntity {
 }
 
 fn plant_caster(ctx: &ReducerContext, entity_id: u64) {
-    let Some(caster) = ctx.db.game_entity().entity_id().find(&entity_id) else {
+    let Some(caster) = ctx.db.game_entity().entity_id().find(entity_id) else {
         return;
     };
     let _ = stop_movement(ctx, caster);
@@ -1043,7 +1043,7 @@ fn advance_casts(ctx: &ReducerContext, dt: f32) {
     let mut ended: Vec<EndedCast> = Vec::new();
 
     for cast in casts {
-        let Some(caster) = ctx.db.game_entity().entity_id().find(&cast.entity_id) else {
+        let Some(caster) = ctx.db.game_entity().entity_id().find(cast.entity_id) else {
             // The caster was removed between starting the cast and this tick.
             ended.push(EndedCast {
                 entity_id: cast.entity_id,
@@ -1341,7 +1341,7 @@ fn update_projectiles(ctx: &ReducerContext, dt: f32) {
     for mut proj in projectiles {
         proj.remaining_seconds -= dt;
         if proj.remaining_seconds <= 0.0 {
-            ctx.db.projectile().id().delete(&proj.id);
+            ctx.db.projectile().id().delete(proj.id);
             continue;
         }
 
@@ -1350,12 +1350,12 @@ fn update_projectiles(ctx: &ReducerContext, dt: f32) {
             Some(target) => {
                 // A target that died or vanished takes the projectile with it,
                 // as it did under Bevy: a homing shot has nothing left to home.
-                let Some(entity) = ctx.db.game_entity().entity_id().find(&target) else {
-                    ctx.db.projectile().id().delete(&proj.id);
+                let Some(entity) = ctx.db.game_entity().entity_id().find(target) else {
+                    ctx.db.projectile().id().delete(proj.id);
                     continue;
                 };
                 if !is_alive(ctx, &entity) {
-                    ctx.db.projectile().id().delete(&proj.id);
+                    ctx.db.projectile().id().delete(proj.id);
                     continue;
                 }
                 Vec3::from(entity.position)
@@ -1364,7 +1364,7 @@ fn update_projectiles(ctx: &ReducerContext, dt: f32) {
                 Some(point) => Vec3::from(point),
                 None => {
                     log::warn!("projectile {} has no target; removing", proj.id);
-                    ctx.db.projectile().id().delete(&proj.id);
+                    ctx.db.projectile().id().delete(proj.id);
                     continue;
                 }
             },
@@ -1388,7 +1388,7 @@ fn update_projectiles(ctx: &ReducerContext, dt: f32) {
                     }
                 }
             }
-            ctx.db.projectile().id().delete(&proj.id);
+            ctx.db.projectile().id().delete(proj.id);
             continue;
         }
 
@@ -1436,7 +1436,7 @@ fn update_aoe_regions(ctx: &ReducerContext, dt: f32) {
         }
 
         if region.remaining_seconds <= 0.0 {
-            ctx.db.aoe_region().id().delete(&region.id);
+            ctx.db.aoe_region().id().delete(region.id);
         } else {
             ctx.db.aoe_region().id().update(region);
         }
@@ -1456,7 +1456,7 @@ fn tick_cooldowns(ctx: &ReducerContext, dt: f32) {
     for row in cooldowns {
         let elapsed_seconds = (row.elapsed_seconds + dt).min(row.duration_seconds);
         if elapsed_seconds >= row.duration_seconds {
-            ctx.db.cooldown().id().delete(&row.id);
+            ctx.db.cooldown().id().delete(row.id);
         } else {
             ctx.db.cooldown().id().update(Cooldown {
                 elapsed_seconds,

@@ -1,22 +1,36 @@
 # Production environment.
-# Server runs on host 193.70.42.29; clients connect to that IP.
-# `database_url` should NOT be put here: it is injected as env var by deployment
-# (e.g. docker-compose: DATABASE_URL=postgresql://...).
+#
+# Served by Caddy over HTTPS at `$SITE_DOMAIN` — see `Caddyfile` and
+# `docker-compose.yml`. Values that depend on the domain are injected as env
+# vars by the compose file rather than written here, so one `.env` change moves
+# the whole deployment.
+#
+# `database_url` should NOT be put here: it is injected as an env var by
+# deployment.
 
 log_filter = "warn,bevy_lightyear_game=info,lightyear=warn"
 
-[server]
-# Accepts connections on all interfaces.
-bind_addr = "0.0.0.0:5051"
-
-[client]
-# Client targets the production server.
-server_addr = "193.70.42.29:5051"
+# The desktop client reaches SpacetimeDB through Caddy's `stdb.` subdomain, over
+# TLS. Previously this file set neither value, so a client built with
+# `APP_ENV=production` silently fell back to `default.toml` — `ws://127.0.0.1:3000`,
+# module `bevymmo` — while the deployment published `bevymmo-v2`. Both halves
+# were wrong and nothing said so.
+#
+# `SITE_DOMAIN` is not interpolated in TOML: set the real domain here, or
+# override with `BEVYMMO__SPACETIME_URI`.
+spacetime_uri = "wss://stdb.example.com"
+spacetime_module = "bevymmo-v2"
 
 [gateway]
-# Accepts connections on all interfaces inside Docker container.
+# Binds all interfaces *inside the container*; only Caddy can reach it, because
+# the compose file publishes this port on loopback.
 bind_addr = "0.0.0.0:8081"
-# TODO: set to the real deployed frontend origin — the `default.toml` value
-# (`http://localhost:4200`) is a dev-only placeholder and will reject every
-# browser request in production. Override here or via `GATEWAY__CORS_ORIGIN`.
+# Overridden by `BEVYMMO__GATEWAY__CORS_ORIGIN` from the compose file, which
+# knows the domain. The frontend is same-origin behind Caddy and needs no CORS
+# exception at all; this covers other callers.
+cors_origin = "https://example.com"
+# Caddy terminates TLS, so the session cookie is HTTPS-only.
 cookie_secure = true
+# Only sound because Caddy is the sole ingress — see `Caddyfile`.
+trust_proxy_headers = true
+log_format = "json"

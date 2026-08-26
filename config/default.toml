@@ -13,16 +13,6 @@ log_filter = "warn,bevy_lightyear_game=debug,lightyear=info"
 spacetime_uri = "ws://127.0.0.1:3000"
 spacetime_module = "bevymmo"
 
-[server]
-# Address where the server binds the UDP socket.
-bind_addr = "0.0.0.0:5051"
-
-[client]
-# Server address that the client connects to.
-server_addr = "127.0.0.1:5051"
-# Local address bound by the client (0.0.0.0:0 = ephemeral port).
-client_addr = "0.0.0.0:0"
-
 [gateway]
 # Address the HTTP gateway (apps/gateway) binds to. The Angular frontend in
 # apps/frontend talks to it; it is a facade, not the authoritative server.
@@ -35,8 +25,14 @@ cors_origin = "http://localhost:4200"
 # would make login look like it silently does nothing. Set `true` once
 # served over HTTPS (see config/production.toml).
 cookie_secure = false
+# `false` locally: nothing sits in front of the gateway, so `X-Forwarded-For`
+# is whatever the caller typed and must not be believed. Production sets it
+# `true` because Caddy is the only way in — see `Caddyfile`.
+trust_proxy_headers = false
 
 # NOTE: `database_url` has no default. It must be provided by:
 #   - config/development.toml or config/production.toml (local/non-sensitive values)
 #   - config/local.toml (gitignored, local secrets)
-#   - env vars (e.g. DATABASE_URL for docker production)
+#   - env vars, which are read with a `BEVYMMO__` prefix and `__` for nesting:
+#     `BEVYMMO__GATEWAY__BIND_ADDR`, `BEVYMMO__SPACETIME_URI`. `APP_ENV` is the
+#     one exception — it selects the profile and is read directly.

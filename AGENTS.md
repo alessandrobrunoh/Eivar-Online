@@ -33,7 +33,7 @@ There is no separate database: SpacetimeDB tables *are* the authoritative state,
 Three constraints inside the module that the compiler will not remind you about:
 
 - **No filesystem, no wall clock, no OS RNG.** `ctx.timestamp` (a field, not a method) and `ctx.rng()`. Map data is pre-compiled by `build.rs` and embedded.
-- **Every table persists**, including tables modelling transient state. Runtime tables are cleared and re-seeded in `init`.
+- **Every table persists**, including tables modelling transient state. Runtime tables are cleared and re-seeded in `init` — but `init` only fires against an *empty* database, so a plain `publish` over a live one inherits mid-flight projectiles, casts and threat. Call the GM-gated `gm_reset_runtime_state` reducer afterwards when that matters; it clears and re-seeds the transient half and leaves every character alone.
 - **A tick is one transaction, single-threaded.** What used to be several Bevy systems is now ordered calls in `tick::game_tick`.
 
 Table row types must have **named fields**: the `SpacetimeType` derive panics on tuple structs (`sats.rs` does `f.ident.unwrap()`). This is why `bevymmo_domain`'s newtypes are mirrored in `crates/stdb-module/src/rows.rs` rather than stored directly.

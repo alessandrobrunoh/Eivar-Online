@@ -1,5 +1,6 @@
 //! Base-ability content and its registry.
 
+pub mod aegis;
 pub mod blade_storm;
 pub mod cataclysm;
 pub mod cinder_storm;
@@ -27,6 +28,7 @@ pub const DRAGON_ABILITY_IDS: &[&str] = &[
 /// Builds the registry containing every base ability shipped by this game build.
 pub fn default_base_abilities() -> BaseAbilityRegistry {
     let mut registry = BaseAbilityRegistry::default();
+    aegis::register(&mut registry);
     cleave::register(&mut registry);
     lunge::register(&mut registry);
     blade_storm::register(&mut registry);
@@ -47,7 +49,8 @@ mod tests {
     #[test]
     fn default_base_abilities_contains_sword_gestures() {
         let registry = default_base_abilities();
-        assert_eq!(registry.len(), 3 + DRAGON_ABILITY_IDS.len());
+        assert_eq!(registry.len(), 4 + DRAGON_ABILITY_IDS.len());
+        assert!(registry.contains(&crate::abilities::AbilityId::new("aegis")));
         assert!(registry.contains(&crate::abilities::AbilityId::new("cleave")));
         assert!(registry.contains(&crate::abilities::AbilityId::new("lunge")));
         assert!(registry.contains(&crate::abilities::AbilityId::new("blade_storm")));

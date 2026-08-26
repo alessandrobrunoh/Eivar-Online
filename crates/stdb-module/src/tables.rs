@@ -106,7 +106,7 @@ pub struct Account {
 /// derive from `player` before it has a character yet — and from there build
 /// its character roster, by filtering `player` rows client-side to the row
 /// whose `identity` matches its own connection.
-#[table(accessor = session, public)]
+#[table(accessor = session)]
 pub struct Session {
     #[primary_key]
     pub identity: Identity,
@@ -191,6 +191,12 @@ pub struct Player {
     pub entity_id: u64,
     /// Whether a connection is currently playing this character. Distinct
     /// from row existence: the character outlives the session.
+    ///
+    /// Indexed because the tick asks "who is online" several times a second
+    /// (`targets::online_character_ids`, `expire_stale_presence`), and without
+    /// an index each of those walks every character the database has ever
+    /// held, not the handful currently connected.
+    #[index(btree)]
     pub online: bool,
     pub last_seen: Timestamp,
 }
@@ -200,7 +206,7 @@ pub struct Player {
 /// Created at `join` with `gold = 0`. `Account` itself holds no Gold — that
 /// table is credentials, and Crystals (later) get their own account-scoped
 /// table rather than a column here.
-#[table(accessor = character_wallet, public)]
+#[table(accessor = character_wallet)]
 pub struct CharacterWallet {
     #[primary_key]
     pub character_id: Uuid,
@@ -211,7 +217,7 @@ pub struct CharacterWallet {
 /// credential. `fee_bps` starts at
 /// [`bevymmo_domain::economy::DEFAULT_ACCOUNT_FEE_BPS`] and a future
 /// subscription reducer writes `0` without touching each market's own fee.
-#[table(accessor = account_economy, public)]
+#[table(accessor = account_economy)]
 pub struct AccountEconomy {
     #[primary_key]
     pub account_id: u64,
@@ -284,28 +290,28 @@ pub struct MarketBuyOrder {
 }
 
 /// Base stats, without equipment bonuses. See [`StatsRow`].
-#[table(accessor = player_stats, public)]
+#[table(accessor = player_stats)]
 pub struct PlayerStats {
     #[primary_key]
     pub character_id: Uuid,
     pub stats: StatsRow,
 }
 
-#[table(accessor = hotbar, public)]
+#[table(accessor = hotbar)]
 pub struct Hotbar {
     #[primary_key]
     pub character_id: Uuid,
     pub slots: HotbarRow,
 }
 
-#[table(accessor = inventory, public)]
+#[table(accessor = inventory)]
 pub struct InventoryTable {
     #[primary_key]
     pub character_id: Uuid,
     pub slots: Vec<Option<ItemInstanceRow>>,
 }
 
-#[table(accessor = equipment, public)]
+#[table(accessor = equipment)]
 pub struct EquipmentTable {
     #[primary_key]
     pub character_id: Uuid,
@@ -316,7 +322,7 @@ pub struct EquipmentTable {
 /// New vocabulary for Root Words and universal Ancient Words. This table is
 /// additive to `KnownGlyphsTable` so existing characters remain readable while
 /// the migration is in progress.
-#[table(accessor = known_ancient_language, public)]
+#[table(accessor = known_ancient_language)]
 pub struct KnownAncientLanguageTable {
     #[primary_key]
     pub character_id: Uuid,
@@ -331,7 +337,7 @@ pub struct KnownAncientLanguageTable {
 /// is enforced unique so that a character has at most one row per word.
 #[table(
     accessor = resonance,
-    public,
+    index(accessor = by_character, btree(columns = [character_id])),
     index(accessor = character_root_word, btree(columns = [character_id, root_word_id]))
 )]
 #[derive(Clone)]
@@ -420,8 +426,8 @@ pub enum PartyRequestKind {
 /// named character" is never ambiguous.
 #[table(
     accessor = party_request,
-    public,
-    index(accessor = by_recipient, btree(columns = [recipient]))
+    index(accessor = by_recipient, btree(columns = [recipient])),
+    index(accessor = by_initiator, btree(columns = [initiator]))
 )]
 pub struct PartyRequestRow {
     #[primary_key]
@@ -560,6 +566,8 @@ pub struct EntityStats {
     pub entity_id: u64,
     pub stats: StatsRow,
     pub current_mana: f32,
+    /// Remaining lifetime of the current temporary shield.
+    pub shield_remaining_seconds: Option<f32>,
 }
 
 #[derive(SpacetimeType, Clone, Copy, Debug, PartialEq, Eq)]
@@ -925,8 +933,34 @@ pub struct DomainEventConfig {
 }
 
 /// A line of text for one player, or for everyone when `target` is `None`.
+/// Chat and short server notices.
+///
+/// # `target` is routing, not confidentiality
+///
+/// This is an `event` table, and it is `public`, so every connected client
+/// receives every row and the recipient check happens client-side (see
+/// `bevymmo_client`'s `drain_events`). `target` says which client should
+/// *display* the line. It does not stop the others from reading it.
+///
+/// That is not an oversight waiting for a fix, it is what SpacetimeDB 2.8.1
+/// permits. Row-level security is unimplemented upstream, so visibility is
+/// per-table; a `view` cannot help because views read rows and an event table
+/// has none to read; and a private event table would deliver to nobody at all,
+/// since no client can subscribe to it.
+///
+/// It is currently harmless because every targeted message restates, in the
+/// second person, something already public: "You are back on your feet"
+/// alongside `game_entity.state`, "You joined the party" alongside
+/// `party_member`.
+///
+/// **So the rule is: nothing may go in here that is not already derivable from
+/// a public table.** No whispers, no mail, no codes, no moderation notes. When
+/// something like that is wanted, it needs a private non-event table plus a
+/// caller-filtered view in `crate::views` — the `my_*` pattern — and a
+/// retention policy, because those rows persist.
 #[table(accessor = player_message, public, event)]
 pub struct PlayerMessageEvent {
+    /// Whose client should show this line. A display hint — see the type docs.
     pub target: Option<Identity>,
     pub text: String,
 }

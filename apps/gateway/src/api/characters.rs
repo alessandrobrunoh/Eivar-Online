@@ -22,6 +22,8 @@ pub struct WalletResponse {
 pub struct StatsResponse {
     pub current_health: f32,
     pub max_health: f32,
+    pub current_shield: f32,
+    pub max_shield: f32,
     pub max_mana: f32,
     pub mana_regeneration: f32,
     pub armor: f32,
@@ -91,6 +93,8 @@ pub async fn stats(
     Ok(Json(StatsResponse {
         current_health: stats.current_health,
         max_health: stats.max_health,
+        current_shield: stats.current_shield,
+        max_shield: stats.max_shield,
         max_mana: stats.max_mana,
         mana_regeneration: stats.mana_regeneration,
         armor: stats.armor,

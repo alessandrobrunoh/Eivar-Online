@@ -1,10 +1,10 @@
-# Development environment: the server runs locally with docker compose.
-# Secrets (DB password) go into config/local.toml (gitignored).
-
-database_url = "postgresql://bevytest2:bevytest2_dev@127.0.0.1:5433/bevytest2"
-
-[server]
-bind_addr = "0.0.0.0:5051"
-
-[client]
-server_addr = "127.0.0.1:5051"
+# Development environment: SpacetimeDB runs locally via
+# `docker compose up -d spacetimedb`, and `default.toml` already points at it.
+#
+# This file is deliberately almost empty. It previously carried a
+# `database_url` for PostgreSQL plus `[server]` and `[client]` sections from
+# the lightyear-era networking — none of which `Settings` has a field for, so
+# serde had been silently discarding all of it. SpacetimeDB tables *are* the
+# database now (see AGENTS.md).
+#
+# Put local overrides in `config/local.toml`, which is gitignored.

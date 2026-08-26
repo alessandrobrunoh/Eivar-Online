@@ -201,7 +201,7 @@ fn remove_matching(
 }
 
 pub(crate) fn remove_status_instance(ctx: &ReducerContext, status: ActiveStatus) {
-    ctx.db.active_status().id().delete(&status.id);
+    ctx.db.active_status().id().delete(status.id);
     remove_owned_periodics(ctx, status.id);
     remove_owned_modifiers(ctx, status.id);
     crate::sim::combat::recalculate_effective_stats(ctx, status.entity_id);
@@ -308,7 +308,7 @@ fn remove_owned_periodics(ctx: &ReducerContext, status_instance_id: u64) {
         .map(|row| row.id)
         .collect();
     for id in ids {
-        ctx.db.periodic_effect().id().delete(&id);
+        ctx.db.periodic_effect().id().delete(id);
     }
 }
 
@@ -362,7 +362,7 @@ fn remove_owned_modifiers(ctx: &ReducerContext, status_instance_id: u64) {
         .map(|row| row.id)
         .collect();
     for id in ids {
-        ctx.db.stat_modifier().id().delete(&id);
+        ctx.db.stat_modifier().id().delete(id);
     }
 }
 

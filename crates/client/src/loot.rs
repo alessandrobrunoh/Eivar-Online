@@ -101,8 +101,8 @@ fn open_loot_on_click(
     if !in_interact_range(
         player_pos.0.x,
         player_pos.0.z,
-        bag.1.0.x,
-        bag.1.0.z,
+        bag.1 .0.x,
+        bag.1 .0.z,
         LOOT_INTERACT_RANGE,
     ) {
         return;
@@ -141,8 +141,8 @@ fn hover_loot_cursor(
         in_interact_range(
             player_pos.0.x,
             player_pos.0.z,
-            bag.1.0.x,
-            bag.1.0.z,
+            bag.1 .0.x,
+            bag.1 .0.z,
             LOOT_INTERACT_RANGE,
         )
         .then_some(())

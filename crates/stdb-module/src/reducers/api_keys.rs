@@ -52,7 +52,7 @@ fn is_lowercase_hex(s: &str) -> bool {
 pub fn validate_name(name: &str) -> Result<String, String> {
     let trimmed = name.trim();
     let length = trimmed.chars().count();
-    if length < MIN_NAME_LEN || length > MAX_NAME_LEN {
+    if !(MIN_NAME_LEN..=MAX_NAME_LEN).contains(&length) {
         return Err(format!(
             "name must be between {MIN_NAME_LEN} and {MAX_NAME_LEN} characters"
         ));
@@ -99,7 +99,7 @@ pub fn create_api_key(
     validate_secret(&secret)?;
     validate_prefix(&secret, &prefix)?;
 
-    if ctx.db.api_key().id().find(&id).is_some() {
+    if ctx.db.api_key().id().find(id).is_some() {
         return Err("api key id already exists".to_string());
     }
 
@@ -137,13 +137,13 @@ pub fn create_api_key(
 #[reducer]
 pub fn revoke_api_key(ctx: &ReducerContext, id: Uuid) -> Result<(), String> {
     let session = caller_session(ctx)?;
-    let Some(row) = ctx.db.api_key().id().find(&id) else {
+    let Some(row) = ctx.db.api_key().id().find(id) else {
         return Err("no api key with that id".to_string());
     };
     if row.account_id != session.account_id {
         return Err("that api key does not belong to this account".to_string());
     }
-    ctx.db.api_key().id().delete(&id);
+    ctx.db.api_key().id().delete(id);
     Ok(())
 }
 
@@ -173,7 +173,7 @@ pub fn authenticate_api_key(ctx: &ReducerContext, secret: String) -> Result<(), 
 /// not authenticated. Indexed lookups only — views cannot scan.
 #[view(accessor = my_api_keys, public, primary_key = id)]
 fn my_api_keys(ctx: &ViewContext) -> Vec<ApiKeyMeta> {
-    let Some(session_row) = ctx.db.session().identity().find(&ctx.sender()) else {
+    let Some(session_row) = ctx.db.session().identity().find(ctx.sender()) else {
         return Vec::new();
     };
     ctx.db

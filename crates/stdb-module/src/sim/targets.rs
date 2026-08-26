@@ -2,16 +2,20 @@
 
 use std::collections::HashSet;
 
-use spacetimedb::{ReducerContext, Table, Uuid};
+use spacetimedb::{ReducerContext, Uuid};
 
 use crate::tables::{player, EntityKindRow, EntityStateRow};
 
 /// Character ids whose `player.online` flag is currently true.
 pub fn online_character_ids(ctx: &ReducerContext) -> HashSet<Uuid> {
+    // Indexed lookup, not `.iter().filter(..)`: this runs three times per tick
+    // (once from `ai::step`, twice from `sim::spells`), and the scan it
+    // replaces was over every character ever created rather than over the
+    // players actually connected.
     ctx.db
         .player()
-        .iter()
-        .filter(|player| player.online)
+        .online()
+        .filter(&true)
         .map(|player| player.character_id)
         .collect()
 }

@@ -27,7 +27,7 @@
 // How long a slain non-player entity stays a corpse. Taken from the domain
 // rather than restated, because it *was* restated — as 30 seconds, under a
 // comment claiming it matched the domain's 10.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use bevymmo_domain::content::items::default_items;
@@ -37,16 +37,16 @@ use bevymmo_domain::items::effects::ItemEffect;
 use bevymmo_domain::stats::components::StatsBundleData;
 use bevymmo_domain::stats::defaults;
 use bevymmo_domain::stats::events::{ModifierOp, StatField};
-use bevymmo_domain::stats::formulas::damage_after_armor;
+use bevymmo_domain::stats::formulas::damage_after_shield;
 use spacetimedb::{ReducerContext, Table, Uuid};
 
 use crate::rows::{equipment_from_rows, StatsRow, EQUIP_SLOTS};
+use crate::sim::throttle::Throttle;
 use crate::tables::{
     active_status, boss_state, crowd_control, damage_event, enemy_ai, entity_stats, equipment,
     game_entity, party_member, periodic_effect, player_stats, stat_modifier, BossPhaseRow,
-    BossState,
-    DamageEventRow, EntityKindRow, EntityStateRow, EntityStats, GameEntity, ModifierKindRow,
-    PeriodicEffect, StatModifier,
+    BossState, DamageEventRow, EntityKindRow, EntityStateRow, EntityStats, GameEntity,
+    ModifierKindRow, PeriodicEffect, StatModifier,
 };
 
 static NON_PLAYER_BASE_STATS: Mutex<Option<HashMap<u64, StatsRow>>> = Mutex::new(None);
@@ -83,6 +83,7 @@ pub fn step(ctx: &ReducerContext, dt: f32) {
         recalculate_effective_stats(ctx, entity_id);
     }
     tick_periodic_effects(ctx, dt);
+    tick_shields(ctx, dt);
     regenerate_mana(ctx, dt);
     reap_the_dead(ctx);
     tick_respawns(ctx, dt);
@@ -128,7 +129,7 @@ fn tick_periodic_effects(ctx: &ReducerContext, dt: f32) {
         ctx.db.periodic_effect().id().update(effect);
     }
     for id in expired {
-        ctx.db.periodic_effect().id().delete(&id);
+        ctx.db.periodic_effect().id().delete(id);
     }
     for (entity_id, source, amount) in due {
         if amount >= 0.0 {
@@ -266,14 +267,46 @@ fn tick_modifiers(ctx: &ReducerContext, dt: f32) -> Vec<u64> {
         ctx.db.stat_modifier().id().update(modifier);
     }
 
+    // A `HashSet` rather than `Vec::contains`: the caller rebuilds stats once
+    // per entity here, and a raid-wide AoE expiring on the same tick made the
+    // dedup quadratic in the number of expiring modifiers.
     let mut touched: Vec<u64> = Vec::new();
+    let mut seen: HashSet<u64> = HashSet::new();
     for modifier in expired {
-        ctx.db.stat_modifier().id().delete(&modifier.id);
-        if !touched.contains(&modifier.entity_id) {
+        ctx.db.stat_modifier().id().delete(modifier.id);
+        if seen.insert(modifier.entity_id) {
             touched.push(modifier.entity_id);
         }
     }
     touched
+}
+
+/// Advances temporary shield lifetimes and clears expired shield pools.
+fn tick_shields(ctx: &ReducerContext, dt: f32) {
+    let mut updates = Vec::new();
+    for row in ctx.db.entity_stats().iter() {
+        let Some(remaining) = row.shield_remaining_seconds else {
+            continue;
+        };
+        match bevymmo_domain::stats::formulas::shield_remaining_after_tick(remaining, dt) {
+            Some(remaining) => updates.push(EntityStats {
+                shield_remaining_seconds: Some(remaining),
+                ..row
+            }),
+            None => updates.push(EntityStats {
+                stats: StatsRow {
+                    current_shield: 0.0,
+                    max_shield: 0.0,
+                    ..row.stats
+                },
+                shield_remaining_seconds: None,
+                ..row
+            }),
+        }
+    }
+    for row in updates {
+        ctx.db.entity_stats().entity_id().update(row);
+    }
 }
 
 /// Refills mana over time.
@@ -283,7 +316,18 @@ fn tick_modifiers(ctx: &ReducerContext, dt: f32) -> Vec<u64> {
 /// mana anywhere in the codebase. `entity_stats.current_mana` gives the number
 /// a home, so this is where the regeneration the stats were always describing
 /// actually happens.
+/// Mana regenerates once a second rather than every tick.
+///
+/// `regenerated_mana` is linear in `dt`, so this lands on exactly the same
+/// number (see `sim::throttle`). What it saves is the writing: `entity_stats`
+/// is `public`, so before this every entity below full mana produced twenty
+/// replicated row updates a second, for every connected client.
+static MANA_REGEN: Throttle = Throttle::from_millis(1_000);
+
 fn regenerate_mana(ctx: &ReducerContext, dt: f32) {
+    let Some(dt) = MANA_REGEN.due(dt) else {
+        return;
+    };
     let mut updates = Vec::new();
     for row in ctx.db.entity_stats().iter() {
         if row.stats.mana_regeneration <= 0.0 || row.current_mana >= row.stats.max_mana {
@@ -325,7 +369,7 @@ fn reap_the_dead(ctx: &ReducerContext) {
         if entity.state == EntityStateRow::Dead {
             continue;
         }
-        let Some(stats) = ctx.db.entity_stats().entity_id().find(&entity.entity_id) else {
+        let Some(stats) = ctx.db.entity_stats().entity_id().find(entity.entity_id) else {
             continue;
         };
         if stats.stats.current_health <= 0.0 {
@@ -380,10 +424,10 @@ pub fn apply_damage(
     amount: f32,
     ability_id: Option<String>,
 ) {
-    let Some(row) = ctx.db.entity_stats().entity_id().find(&target) else {
+    let Some(row) = ctx.db.entity_stats().entity_id().find(target) else {
         return;
     };
-    let Some(entity) = ctx.db.game_entity().entity_id().find(&target) else {
+    let Some(entity) = ctx.db.game_entity().entity_id().find(target) else {
         return;
     };
     if entity.state == EntityStateRow::Dead {
@@ -392,7 +436,7 @@ pub fn apply_damage(
 
     if hostile_effect_blocked(ctx, target, source) {
         if let Some(source_character_id) = source
-            .and_then(|id| ctx.db.game_entity().entity_id().find(&id))
+            .and_then(|id| ctx.db.game_entity().entity_id().find(id))
             .and_then(|attacker| attacker.owner_character_id)
         {
             let message = if entity.kind == EntityKindRow::AllyDummy {
@@ -410,7 +454,9 @@ pub fn apply_damage(
     }
 
     let bundle = StatsBundleData::from(row.stats);
-    let effective = damage_after_armor(amount, &bundle.combat);
+    let damage = damage_after_shield(amount, row.stats.current_shield, &bundle.combat);
+    let effective = damage.health_damage;
+    let current_shield = damage.remaining_shield;
     let current_health = (row.stats.current_health - effective).max(0.0);
     let killed = current_health <= 0.0;
     let is_player = entity.owner_character_id.is_some();
@@ -420,6 +466,7 @@ pub fn apply_damage(
     ctx.db.entity_stats().entity_id().update(EntityStats {
         stats: StatsRow {
             current_health,
+            current_shield,
             ..row.stats
         },
         ..row
@@ -450,15 +497,38 @@ pub fn apply_damage(
     }
 }
 
+/// Grants a temporary pure shield to a live entity.
+pub fn apply_shield(ctx: &ReducerContext, target: u64, amount: f32, duration_seconds: f32) {
+    if amount <= 0.0 || duration_seconds <= 0.0 {
+        return;
+    }
+    let Some(row) = ctx.db.entity_stats().entity_id().find(target) else {
+        return;
+    };
+    if is_dead(ctx, target) {
+        return;
+    }
+
+    ctx.db.entity_stats().entity_id().update(EntityStats {
+        stats: StatsRow {
+            current_shield: amount,
+            max_shield: amount,
+            ..row.stats
+        },
+        shield_remaining_seconds: Some(duration_seconds),
+        ..row
+    });
+}
+
 /// Whether a hostile payload from `source` must be dropped for `target`.
 ///
 /// Same rule as [`is_friendly_fire`]: party members and the ally dummy are
 /// immune to a player's damage and debuffs. The hostile dummy is not.
 pub fn hostile_effect_blocked(ctx: &ReducerContext, target: u64, source: Option<u64>) -> bool {
-    let Some(entity) = ctx.db.game_entity().entity_id().find(&target) else {
+    let Some(entity) = ctx.db.game_entity().entity_id().find(target) else {
         return false;
     };
-    let source_entity = source.and_then(|id| ctx.db.game_entity().entity_id().find(&id));
+    let source_entity = source.and_then(|id| ctx.db.game_entity().entity_id().find(id));
     let source_character_id = source_entity
         .as_ref()
         .and_then(|attacker| attacker.owner_character_id);
@@ -469,10 +539,10 @@ pub fn hostile_effect_blocked(ctx: &ReducerContext, target: u64, source: Option<
         source_character_id,
         entity
             .owner_character_id
-            .and_then(|id| ctx.db.party_member().character_id().find(&id))
+            .and_then(|id| ctx.db.party_member().character_id().find(id))
             .map(|row| row.party_id),
         source_character_id
-            .and_then(|id| ctx.db.party_member().character_id().find(&id))
+            .and_then(|id| ctx.db.party_member().character_id().find(id))
             .map(|row| row.party_id),
     )
 }
@@ -554,10 +624,10 @@ pub fn can_receive_heal(
 /// Looks up party membership and asks [`can_receive_heal`]. Missing rows
 /// fail closed: the heal is dropped rather than applied to a stranger.
 pub fn heal_allowed_for(ctx: &ReducerContext, target: u64, source: Option<u64>) -> bool {
-    let Some(target_entity) = ctx.db.game_entity().entity_id().find(&target) else {
+    let Some(target_entity) = ctx.db.game_entity().entity_id().find(target) else {
         return false;
     };
-    let source_entity = source.and_then(|id| ctx.db.game_entity().entity_id().find(&id));
+    let source_entity = source.and_then(|id| ctx.db.game_entity().entity_id().find(id));
     let source_character_id = source_entity
         .as_ref()
         .and_then(|entity| entity.owner_character_id);
@@ -567,10 +637,10 @@ pub fn heal_allowed_for(ctx: &ReducerContext, target: u64, source: Option<u64>) 
         source_character_id,
         target_entity
             .owner_character_id
-            .and_then(|id| ctx.db.party_member().character_id().find(&id))
+            .and_then(|id| ctx.db.party_member().character_id().find(id))
             .map(|row| row.party_id),
         source_character_id
-            .and_then(|id| ctx.db.party_member().character_id().find(&id))
+            .and_then(|id| ctx.db.party_member().character_id().find(id))
             .map(|row| row.party_id),
     )
 }
@@ -586,7 +656,7 @@ pub fn apply_healing(ctx: &ReducerContext, target: u64, amount: f32) {
     if amount <= 0.0 {
         return;
     }
-    let Some(row) = ctx.db.entity_stats().entity_id().find(&target) else {
+    let Some(row) = ctx.db.entity_stats().entity_id().find(target) else {
         return;
     };
     if is_dead(ctx, target) {
@@ -705,14 +775,17 @@ pub fn resurrect(ctx: &ReducerContext, entity: GameEntity) {
     reset_boss_encounter(ctx, entity_id);
 
     // Re-read: `clear_modifiers` rewrites this row.
-    if let Some(stats) = ctx.db.entity_stats().entity_id().find(&entity_id) {
+    if let Some(stats) = ctx.db.entity_stats().entity_id().find(entity_id) {
         let refilled = StatsRow {
             current_health: stats.stats.max_health,
+            current_shield: 0.0,
+            max_shield: 0.0,
             ..stats.stats
         };
         ctx.db.entity_stats().entity_id().update(EntityStats {
             stats: refilled,
             current_mana: refilled.max_mana,
+            shield_remaining_seconds: None,
             ..stats
         });
     }
@@ -761,7 +834,7 @@ fn clear_crowd_control(ctx: &ReducerContext, entity_id: u64) {
         .map(|row| row.id)
         .collect();
     for id in ids {
-        ctx.db.crowd_control().id().delete(&id);
+        ctx.db.crowd_control().id().delete(id);
     }
 }
 
@@ -775,7 +848,7 @@ fn clear_periodic_effects(ctx: &ReducerContext, entity_id: u64) {
         .map(|row| row.id)
         .collect();
     for id in ids {
-        ctx.db.periodic_effect().id().delete(&id);
+        ctx.db.periodic_effect().id().delete(id);
     }
 }
 
@@ -785,7 +858,7 @@ fn clear_periodic_effects(ctx: &ReducerContext, entity_id: u64) {
 /// engagement flag, the rotation cursor and the threat table all belong to the
 /// *fight*, not to the creature, so they die with it.
 fn reset_boss_encounter(ctx: &ReducerContext, entity_id: u64) {
-    let Some(boss) = ctx.db.boss_state().entity_id().find(&entity_id) else {
+    let Some(boss) = ctx.db.boss_state().entity_id().find(entity_id) else {
         return;
     };
     ctx.db.boss_state().entity_id().update(BossState {
@@ -841,10 +914,10 @@ pub fn clear_modifiers(ctx: &ReducerContext, target: u64) -> usize {
 /// alone for player-owned entities. Writing effective health into the base row
 /// is exactly the double-counting the split exists to prevent.
 pub fn recalculate_effective_stats(ctx: &ReducerContext, entity_id: u64) {
-    let Some(current) = ctx.db.entity_stats().entity_id().find(&entity_id) else {
+    let Some(current) = ctx.db.entity_stats().entity_id().find(entity_id) else {
         return;
     };
-    let Some(entity) = ctx.db.game_entity().entity_id().find(&entity_id) else {
+    let Some(entity) = ctx.db.game_entity().entity_id().find(entity_id) else {
         return;
     };
     let Some(mut stats) = base_stats(ctx, &entity) else {
@@ -904,7 +977,7 @@ pub const LEGACY_TICKS_PER_SECOND: f32 = 60.0;
 /// and the caller must then leave the effective stats alone.
 fn base_stats(ctx: &ReducerContext, entity: &GameEntity) -> Option<StatsRow> {
     if let Some(character_id) = entity.owner_character_id {
-        let persisted = ctx.db.player_stats().character_id().find(&character_id)?;
+        let persisted = ctx.db.player_stats().character_id().find(character_id)?;
         let mut stats = persisted.stats;
         apply_equipment_bonuses(ctx, character_id, &mut stats);
         return Some(stats);
@@ -937,7 +1010,7 @@ fn base_stats(ctx: &ReducerContext, entity: &GameEntity) -> Option<StatsRow> {
 /// Bevy server, so a `Multiply` bonus composes with an `Add` bonus the same way
 /// it did there.
 fn apply_equipment_bonuses(ctx: &ReducerContext, character_id: Uuid, stats: &mut StatsRow) {
-    let Some(row) = ctx.db.equipment().character_id().find(&character_id) else {
+    let Some(row) = ctx.db.equipment().character_id().find(character_id) else {
         return;
     };
     let equipment = equipment_from_rows(&row.slots);
@@ -1084,14 +1157,14 @@ fn catalog_respawn_seconds(ctx: &ReducerContext, entity: &GameEntity) -> Option<
             ctx.db
                 .enemy_ai()
                 .entity_id()
-                .find(&entity.entity_id)?
+                .find(entity.entity_id)?
                 .kind_id
         }
         EntityKindRow::Boss => {
             ctx.db
                 .boss_state()
                 .entity_id()
-                .find(&entity.entity_id)?
+                .find(entity.entity_id)?
                 .kind_id
         }
         _ => return None,
@@ -1120,7 +1193,7 @@ fn kill(ctx: &ReducerContext, entity: GameEntity) {
         respawn_in_seconds,
         ..entity
     });
-    if let Some(corpse) = ctx.db.game_entity().entity_id().find(&entity_id) {
+    if let Some(corpse) = ctx.db.game_entity().entity_id().find(entity_id) {
         crate::sim::loot::on_death(ctx, &corpse);
     }
 }
@@ -1130,7 +1203,7 @@ fn is_dead(ctx: &ReducerContext, entity_id: u64) -> bool {
     ctx.db
         .game_entity()
         .entity_id()
-        .find(&entity_id)
+        .find(entity_id)
         .map(|entity| entity.state == EntityStateRow::Dead)
         .unwrap_or(false)
 }

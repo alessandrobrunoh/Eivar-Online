@@ -43,7 +43,7 @@ pub fn start_craft(
         .db
         .game_entity()
         .entity_id()
-        .find(&npc_entity_id)
+        .find(npc_entity_id)
         .ok_or_else(|| "NPC not found".to_string())?;
     if npc.kind != EntityKindRow::Npc {
         return Err("that entity is not a crafter".to_string());
@@ -52,7 +52,7 @@ pub fn start_craft(
         .db
         .npc()
         .entity_id()
-        .find(&npc_entity_id)
+        .find(npc_entity_id)
         .ok_or_else(|| "NPC not found".to_string())?;
     let categories = crafting::npc_craft_categories(&npc_row.kind_id)
         .ok_or_else(|| "that NPC does not craft".to_string())?;
@@ -95,7 +95,7 @@ pub fn start_craft(
     )
     .map_err(|error| error.to_string())?;
 
-    if let Some(active) = ctx.db.cast_state().entity_id().find(&caller.entity_id) {
+    if let Some(active) = ctx.db.cast_state().entity_id().find(caller.entity_id) {
         spells::end_cast(ctx, caller.entity_id, active.spell_id, true);
     }
     gathering::cancel_session(ctx, caller.entity_id);

@@ -56,6 +56,7 @@ pub struct PlayerIxCols {
     pub character_id: __sdk::__query_builder::IxCol<Player, __sdk::Uuid>,
     pub entity_id: __sdk::__query_builder::IxCol<Player, u64>,
     pub normalized_name: __sdk::__query_builder::IxCol<Player, String>,
+    pub online: __sdk::__query_builder::IxCol<Player, bool>,
 }
 
 impl __sdk::__query_builder::HasIxCols for Player {
@@ -66,6 +67,7 @@ impl __sdk::__query_builder::HasIxCols for Player {
             character_id: __sdk::__query_builder::IxCol::new(table_name, "character_id"),
             entity_id: __sdk::__query_builder::IxCol::new(table_name, "entity_id"),
             normalized_name: __sdk::__query_builder::IxCol::new(table_name, "normalized_name"),
+            online: __sdk::__query_builder::IxCol::new(table_name, "online"),
         }
     }
 }

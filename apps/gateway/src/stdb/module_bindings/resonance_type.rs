@@ -46,6 +46,7 @@ impl __sdk::__query_builder::HasCols for Resonance {
 ///
 /// Provides typed access to indexed columns for query building.
 pub struct ResonanceIxCols {
+    pub character_id: __sdk::__query_builder::IxCol<Resonance, __sdk::Uuid>,
     pub id: __sdk::__query_builder::IxCol<Resonance, u64>,
 }
 
@@ -53,6 +54,7 @@ impl __sdk::__query_builder::HasIxCols for Resonance {
     type IxCols = ResonanceIxCols;
     fn ix_cols(table_name: &'static str) -> Self::IxCols {
         ResonanceIxCols {
+            character_id: __sdk::__query_builder::IxCol::new(table_name, "character_id"),
             id: __sdk::__query_builder::IxCol::new(table_name, "id"),
         }
     }
